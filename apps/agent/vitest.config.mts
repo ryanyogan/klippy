@@ -5,6 +5,8 @@ export default defineConfig({
 	plugins: [
 		cloudflareTest({
 			wrangler: { configPath: "./wrangler.jsonc" },
+			// Tests never call real models: they stay offline and free.
+			remoteBindings: false,
 		}),
 	],
 });

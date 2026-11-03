@@ -1,0 +1,55 @@
+# a-04 Your first call to Claude. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, agents 0.33.0, ai 7.0.162.
+# MODEL: the 'default' gateway on the recording account has no Anthropic key stored (no BYOK), so the Claude call
+# (anthropic/claude-haiku-5.5) failed before any output and the fallback leg, Workers AI @cf/zai-org/glm-4.7-flash, answered.
+# The "model" field in the reply says which one answered. Without the fallback, the same request is a 500 and the dev log shows:
+#   [wrangler:error] CloudflareAIError: Insufficient balance; add money to your gateway or use BYOK
+# Dev server started with `pnpm dev --port 8801` (the default port is 8787).
+#
+# NOTES FOR THE WRITER (security review, 2026-11-03), teach these in A4:
+# - Never trust the body. /ask checks at runtime that question is a string, trims it, and refuses blank or
+#   over-2,000-character questions with a 400. TypeScript's <{ question?: unknown }> is only a hint; it checks nothing.
+#   The question goes in as messages: [{ role: 'user', content }], not spliced into a prompt string.
+# - Denial of wallet: every /ask spends the learner's own key. maxOutputTokens: 300 caps each reply and the length
+#   cap bounds each input. Locally that's enough; a-05 adds a guard before the first deploy makes /ask public.
+# - The tests prove the 400s and that the cap reaches the model call (doGenerateCalls on the fake model).
+
+## Terminal 1: pnpm dev
+
+## Terminal 2
+$ curl -s -X POST http://localhost:8801/ask -d '{"question":"Who are you, in one sentence?"}'
+{"answer":"I'm Klippy, your friendly personal assistant ready to help you with questions and tasks!","model":"@cf/zai-org/glm-4.7-flash"}
+$ curl -s -i -X POST http://localhost:8801/ask -d '{"question": 42}'
+HTTP/1.1 400 Bad Request
+Content-Length: 63
+Content-Type: application/json
+
+{"error":"Send {\"question\": \"...\"}, up to 2000 characters"}
+
+$ pnpm typecheck
+
+> klippy@ typecheck /home/ryan/code/klippy
+> pnpm --recursive run typecheck
+
+
+> agent@0.0.0 typecheck /home/ryan/code/klippy/apps/agent
+> tsc --noEmit && tsc --noEmit -p test
+
+
+$ pnpm test
+
+> klippy@ test /home/ryan/code/klippy
+> pnpm --recursive run test
+
+
+> agent@0.0.0 test /home/ryan/code/klippy/apps/agent
+> vitest run
+
+
+ RUN  v5.0.5 /home/ryan/code/klippy/apps/agent
+
+
+ Test Files  2 passed (2)
+      Tests  8 passed (8)
+   Start at  17:31:13
+   Duration  2.35s (transform 82%, import 15%, tests 2%, worker 1%)
+
