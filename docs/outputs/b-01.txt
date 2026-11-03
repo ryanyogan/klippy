@@ -1,0 +1,5 @@
+# b-01 Why models need tools. 2026-11-03.
+# A sandbox lesson: the learner compares prompts in the bits sandbox. No code changes in klippy,
+# so this tag holds only this note. The code is exactly as at a-05.
+# Start course B from here:
+#   git clone https://github.com/ryanyogan/klippy && cd klippy && git checkout b-01 && pnpm install
