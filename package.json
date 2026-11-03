@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "pnpm --filter agent run dev",
     "test": "pnpm --recursive run test",
-    "deploy": "pnpm --filter agent run deploy"
+    "deploy": "pnpm --filter agent run deploy",
+    "typecheck": "pnpm --recursive run typecheck"
   }
 }
