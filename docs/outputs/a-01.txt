@@ -1,0 +1,9 @@
+# a-01 Your workbench. Recorded 2026-11-03 on Linux (Node from mise, corepack 0.36.0).
+# Note: pnpm -v was run in a folder whose package.json pins "packageManager": "pnpm@10.34.9",
+# so corepack fetched that exact version (the first line below is corepack's notice).
+$ node -v
+v24.22.2
+$ corepack enable
+$ pnpm -v
+! Corepack is about to download https://registry.npmjs.org/pnpm/-/pnpm-10.34.9.tgz
+10.34.9
