@@ -3,7 +3,9 @@ import { z } from 'zod';
 
 // Open-Meteo is free and needs no key (non-commercial use, under 10,000 calls a day).
 export const getWeather = tool({
-	description: 'Get the current weather for a place.',
+	// The description is a prompt: say what it returns, when to use it, and when not to.
+	description:
+		'Get the current weather (temperature, wind and conditions) for a city or town. Use it when the user asks about the weather right now or what to wear today. It has no forecasts and no past weather.',
 	inputSchema: z.object({
 		place: z.string().describe('A city or town, e.g. "Berlin"'),
 	}),

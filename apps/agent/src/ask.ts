@@ -1,5 +1,6 @@
 import { generateText, isStepCount } from 'ai';
 import { model } from './model';
+import { getTime } from './tools/time';
 import { getWeather } from './tools/weather';
 
 // Long questions cost money and time. 2,000 characters is plenty for one question.
@@ -12,7 +13,7 @@ export async function ask(env: Env, question: string) {
 		system: 'You are Klippy, a friendly personal assistant. Answer in one or two sentences.',
 		messages: [{ role: 'user', content: question }],
 		maxOutputTokens: 300, // a hard cap on the reply, so one request can't run up a bill
-		tools: { getWeather },
+		tools: { getWeather, getTime },
 		// Step 1: Claude may call a tool. Step 2: it answers with the result. Then stop.
 		stopWhen: isStepCount(2),
 		// Log one line per step, so you can watch the round trip in the `pnpm dev` terminal.

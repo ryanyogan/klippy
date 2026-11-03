@@ -1,0 +1,78 @@
+# b-04 Descriptions Claude follows. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, agents 0.33.0, ai 7.0.162, zod 4.6.7.
+# MODEL: no Anthropic key on the gateway, so the Workers AI fallback (@cf/zai-org/glm-4.7-flash) answered.
+# Notes for the writer:
+# - New here: getTime (src/tools/time.ts), and descriptions that say what a tool returns, when to use it and when not.
+# - "What is 2+2?" used no tool (one step, finish "stop"). The jacket question used both tools in ONE step
+#   (parallel tool calls), then answered: that's why isStepCount(2) is still enough.
+# - Honest limit, say it in the lesson: a fake model can't test whether descriptions work. The tests check our side:
+#   what the model is shown (both tools, real descriptions) and that no tool runs (no fetch) unless the model asks.
+#   Judging the descriptions themselves is the sandbox's coached :::prompt exercise (or an eval, course H).
+# - The recording ran after midnight UTC, so Tokyo and Oslo read "Wednesday, 4 November 2026".
+
+## Terminal 1: pnpm dev
+
+> klippy@ dev /home/ryan/code/klippy
+> pnpm --filter agent run dev --port 8801
+
+
+> agent@0.0.0 dev /home/ryan/code/klippy/apps/agent
+> wrangler dev --port 8801
+
+
+ ⛅️ wrangler 4.157.0
+────────────────────
+Using secrets defined in .dev.vars
+Your Worker has access to the following bindings:
+Binding                                 Resource                  Mode
+env.AI                                  AI                        remote
+env.LIMITER (10 requests/60s)           Rate Limit                local
+env.KLIPPY_TOKEN ("(hidden)")           Environment Variable      local
+
+⎔ Establishing remote connection...
+⎔ Starting local server...
+[wrangler:info] Ready on http://localhost:8801
+[wrangler:info] GET / 200 OK (7462ms)
+{"step":0,"finish":"stop","toolCalls":[],"toolResults":[],"text":"2 + 2 = 4.","tokens":399}
+[wrangler:info] POST /ask 200 OK (3351ms)
+{"step":0,"finish":"tool-calls","toolCalls":[{"tool":"getTime","input":{"timeZone":"Asia/Tokyo"}}],"toolResults":[{"tool":"getTime","output":{"timeZone":"Asia/Tokyo","now":"Wednesday, 4 November 2026 at 08:43"}}],"text":"","tokens":406}
+{"step":1,"finish":"stop","toolCalls":[],"toolResults":[],"text":"It's 8:43 AM on Wednesday, November 4, 2026 in Tokyo.","tokens":466}
+[wrangler:info] POST /ask 200 OK (4920ms)
+{"step":0,"finish":"tool-calls","toolCalls":[{"tool":"getWeather","input":{"place":"Oslo"}},{"tool":"getTime","input":{"timeZone":"Europe/Oslo"}}],"toolResults":[{"tool":"getWeather","output":{"place":"Oslo, Norway","temperatureC":3.8,"windKmh":2.2,"conditions":"partly cloudy"}},{"tool":"getTime","output":{"timeZone":"Europe/Oslo","now":"Wednesday, 4 November 2026 at 00:43"}}],"text":"","tokens":417}
+{"step":1,"finish":"stop","toolCalls":[],"toolResults":[],"text":"Yes, it's a brisk 4°C and partly cloudy in Oslo right now, so a light jacket would be a good idea.","tokens":526}
+[wrangler:info] POST /ask 200 OK (18264ms)
+
+## Terminal 2
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"What is 2+2?"}'
+{"answer":"2 + 2 = 4.","model":"@cf/zai-org/glm-4.7-flash"}
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"What time is it in Tokyo right now?"}'
+{"answer":"It's 8:43 AM on Wednesday, November 4, 2026 in Tokyo.","model":"@cf/zai-org/glm-4.7-flash"}
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"Should I take a jacket in Oslo today?"}'
+{"answer":"Yes, it's a brisk 4°C and partly cloudy in Oslo right now, so a light jacket would be a good idea.","model":"@cf/zai-org/glm-4.7-flash"}
+$ pnpm typecheck
+
+> klippy@ typecheck /home/ryan/code/klippy
+> pnpm --recursive run typecheck
+
+
+> agent@0.0.0 typecheck /home/ryan/code/klippy/apps/agent
+> tsc --noEmit && tsc --noEmit -p test
+
+
+$ pnpm test
+
+> klippy@ test /home/ryan/code/klippy
+> pnpm --recursive run test
+
+
+> agent@0.0.0 test /home/ryan/code/klippy/apps/agent
+> vitest run
+
+
+ RUN  v5.0.5 /home/ryan/code/klippy/apps/agent
+
+
+ Test Files  5 passed (5)
+      Tests  20 passed (20)
+   Start at  17:43:50
+   Duration  2.72s (transform 77%, import 18%, tests 4%, worker 2%)
+
