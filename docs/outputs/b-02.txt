@@ -1,0 +1,72 @@
+# b-02 Your first tool: the weather. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, agents 0.33.0, ai 7.0.162, zod 4.6.7.
+# MODEL: no Anthropic key on the gateway, so the Workers AI fallback (@cf/zai-org/glm-4.7-flash) answered and called the tool.
+# Weather: live Open-Meteo (api.open-meteo.com/v1/forecast, geocoding-api.open-meteo.com/v1/search; free, no key,
+# non-commercial use under 10,000 calls a day; checked 2026-11-03).
+# Notes for the writer:
+# - ai 7 names the stop condition isStepCount (stepCountIs is only an alias now). isStepCount(2): one tool call, one answer.
+# - Tests fake both the model (a scripted tool call, then text) and Open-Meteo (vi.spyOn(globalThis, 'fetch')).
+#   They check the tool result is what goes back to the model in the second call.
+# - A place that doesn't exist returns { error } as a normal result; failed fetches are B7's topic.
+# - Llanfairpwllgwyngyll shows geocoding at work on a name the learner won't type twice.
+
+## Terminal 1: pnpm dev
+
+> klippy@ dev /home/ryan/code/klippy
+> pnpm --filter agent run dev --port 8801
+
+
+> agent@0.0.0 dev /home/ryan/code/klippy/apps/agent
+> wrangler dev --port 8801
+
+
+ ⛅️ wrangler 4.157.0
+────────────────────
+
+Cloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md
+Using secrets defined in .dev.vars
+Your Worker has access to the following bindings:
+Binding                                 Resource                  Mode
+env.AI                                  AI                        remote
+env.LIMITER (10 requests/60s)           Rate Limit                local
+env.KLIPPY_TOKEN ("(hidden)")           Environment Variable      local
+
+⎔ Establishing remote connection...
+⎔ Starting local server...
+[wrangler:info] Ready on http://localhost:8801
+[wrangler:info] GET / 200 OK (1945ms)
+[wrangler:info] POST /ask 200 OK (7920ms)
+[wrangler:info] POST /ask 200 OK (4856ms)
+
+## Terminal 2
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"What is the weather in Berlin right now?"}'
+{"answer":"It's currently 5.6°C in Berlin with partly cloudy skies and light winds of 7.1 km/h.","model":"@cf/zai-org/glm-4.7-flash"}
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"Is it raining in Llanfairpwllgwyngyll?"}'
+{"answer":"No, it's not raining in Llanfairpwllgwyngyll; the weather is partly cloudy with a temperature of 8.7°C.","model":"@cf/zai-org/glm-4.7-flash"}
+$ pnpm typecheck
+
+> klippy@ typecheck /home/ryan/code/klippy
+> pnpm --recursive run typecheck
+
+
+> agent@0.0.0 typecheck /home/ryan/code/klippy/apps/agent
+> tsc --noEmit && tsc --noEmit -p test
+
+
+$ pnpm test
+
+> klippy@ test /home/ryan/code/klippy
+> pnpm --recursive run test
+
+
+> agent@0.0.0 test /home/ryan/code/klippy/apps/agent
+> vitest run
+
+
+ RUN  v5.0.5 /home/ryan/code/klippy/apps/agent
+
+
+ Test Files  4 passed (4)
+      Tests  16 passed (16)
+   Start at  17:40:17
+   Duration  2.82s (transform 85%, import 12%, tests 2%, worker 1%)
+

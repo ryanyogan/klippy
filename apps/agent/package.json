@@ -20,6 +20,7 @@
 	"dependencies": {
 		"@ai-sdk/provider": "4.0.35",
 		"agents": "0.33.0",
-		"ai": "7.0.162"
+		"ai": "7.0.162",
+		"zod": "4.6.7"
 	}
 }
