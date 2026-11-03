@@ -1,0 +1,130 @@
+# a-05 Checkpoint: ship it. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, agents 0.33.0, ai 7.0.162.
+# MODEL: as in a-04, the gateway has no Anthropic key stored, so the Workers AI fallback answered (see "model").
+# Dev server started with `pnpm dev --port 8801`. Local secret: apps/agent/.dev.vars (copied from .dev.vars.example).
+#
+# NOT RECORDED: a live `wrangler deploy`, `wrangler secret put` and `wrangler tail`. The reference lane did not deploy
+# to the owner's account (that makes a public Worker that spends the owner's model budget). Only `wrangler deploy --dry-run`
+# is recorded below. The owner (or a lane with permission) should record, in order:
+#   pnpm --filter agent exec wrangler login
+#   pnpm --filter agent exec wrangler secret put KLIPPY_TOKEN     # paste the output of: openssl rand -hex 32
+#   pnpm deploy
+#   curl -s "https://klippy.<subdomain>.workers.dev/klippy/check?nonce=lesson-a05-demo"
+#   pnpm --filter agent exec wrangler tail                        # in another terminal, while curling
+#   pnpm --filter agent exec wrangler deployments list            # then: wrangler rollback, to show rollback
+#
+# NOTES FOR THE WRITER (security review, 2026-11-03), teach these in A5, before the first deploy:
+# - Deploying makes /ask public, and every call spends the learner's own Anthropic key (denial of wallet).
+# - Lock 1, only you: /ask needs 'Authorization: Bearer <KLIPPY_TOKEN>'. The token is a Worker secret
+#   (wrangler secret put; .dev.vars locally), declared in wrangler.jsonc under secrets.required so wrangler types
+#   types it and wrangler dev warns when it's missing. No token set means the door stays shut (401).
+#   The comparison hashes both sides and uses crypto.subtle.timingSafeEqual, so response timing leaks nothing.
+# - Lock 2, not too often: the Workers Rate Limiting binding (ratelimits, LIMITER) allows 10 model calls a minute
+#   per client address on /ask. Over: 429. The binding's counters are per Cloudflare location and approximate:
+#   a brake, not a bill cap.
+# - /klippy/check must stay public (bits calls it), and anyone can call it, not only bits: bits' own limits don't
+#   protect the learner's key. So the probe answer is the same for every caller and is cached in a module-level
+#   memo for 5 minutes (the second check in the recording answers in 7 ms with the same probe and a fresh nonce),
+#   and a fresh probe (a cache miss) also needs the rate limiter under ONE shared key, 'check': at most 10 model
+#   calls a minute in total, whoever asks. The limiter guards only the miss, so a flood of callers can't block
+#   bits from getting the cached answer. The memo lives per isolate (Workers may run several), which is why the
+#   shared rate-limit key is the real cap. The test proves two checks make exactly one model call.
+# - The real bill cap lives at the gateway: AI Gateway rate limiting (requests) and spend limits (dollars, BYOK too),
+#   per gateway: developers.cloudflare.com/ai-gateway/features/{rate-limiting,spend-limits}/ (checked 2026-11-03). Course F (F2/F3) goes deeper; A5 should point there.
+# - The check route accepts only an 8-64 character [A-Za-z0-9_-] nonce, so it never echoes arbitrary input,
+#   answers no-store, and asks a fixed question (capped by maxOutputTokens: 300, from a-04).
+# - TAG in src/check.ts is bumped at each course checkpoint (a-05, b-09, c-09, ...), not at every tag.
+# - Observability: logs and traces are on in wrangler.jsonc (traces start counting toward Observability
+#   pricing on 2026-12-01, per developers.cloudflare.com/workers/observability/traces/, checked 2026-11-03).
+
+## Terminal 1: pnpm dev
+
+> klippy@ dev /home/ryan/code/klippy
+> pnpm --filter agent run dev --port 8801
+
+
+> agent@0.0.0 dev /home/ryan/code/klippy/apps/agent
+> wrangler dev --port 8801
+
+
+ ⛅️ wrangler 4.157.0
+────────────────────
+Using secrets defined in .dev.vars
+Your Worker has access to the following bindings:
+Binding                                 Resource                  Mode
+env.AI                                  AI                        remote
+env.LIMITER (10 requests/60s)           Rate Limit                local
+env.KLIPPY_TOKEN ("(hidden)")           Environment Variable      local
+
+⎔ Establishing remote connection...
+⎔ Starting local server...
+[wrangler:info] Ready on http://localhost:8801
+[wrangler:info] GET / 200 OK (4721ms)
+[wrangler:info] POST /ask 401 Unauthorized (10ms)
+[wrangler:info] POST /ask 200 OK (2903ms)
+[wrangler:info] GET /klippy/check 200 OK (2282ms)
+[wrangler:info] GET /klippy/check 200 OK (7ms)
+[wrangler:info] GET /klippy/check 400 Bad Request (8ms)
+
+## Terminal 2
+$ curl -s -i -X POST http://localhost:8801/ask -d '{"question":"Hi"}'
+HTTP/1.1 401 Unauthorized
+Content-Length: 58
+Content-Type: application/json
+
+{"error":"Send Authorization: Bearer <your KLIPPY_TOKEN>"}
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"Who are you, in one sentence?"}'
+{"answer":"I am Klippy, a friendly personal assistant here to help you quickly and efficiently.","model":"@cf/zai-org/glm-4.7-flash"}
+$ curl -s "http://localhost:8801/klippy/check?nonce=lesson-a05-demo"
+{"nonce":"lesson-a05-demo","tag":"a-05","probe":{"answer":"Hello to bits!","model":"@cf/zai-org/glm-4.7-flash"}}
+$ curl -s "http://localhost:8801/klippy/check?nonce=second-call-same-probe"
+{"nonce":"second-call-same-probe","tag":"a-05","probe":{"answer":"Hello to bits!","model":"@cf/zai-org/glm-4.7-flash"}}
+$ curl -s -i "http://localhost:8801/klippy/check?nonce=hi"
+HTTP/1.1 400 Bad Request
+Content-Length: 58
+Content-Type: application/json
+
+{"error":"Send ?nonce= (8 to 64 letters, digits, - or _)"}
+
+$ pnpm --filter agent exec wrangler deploy --dry-run
+
+ ⛅️ wrangler 4.157.0
+────────────────────
+Total Upload: 818.90 KiB / gzip: 161.95 KiB
+Your Worker has access to the following bindings:
+Binding                            Resource        
+env.AI                             AI              
+env.LIMITER (10 requests/60s)      Rate Limit      
+
+--dry-run: exiting now.
+
+$ pnpm typecheck
+
+> klippy@ typecheck /home/ryan/code/klippy
+> pnpm --recursive run typecheck
+
+
+> agent@0.0.0 typecheck /home/ryan/code/klippy/apps/agent
+> tsc --noEmit && tsc --noEmit -p test
+
+
+$ pnpm test
+
+> klippy@ test /home/ryan/code/klippy
+> pnpm --recursive run test
+
+
+> agent@0.0.0 test /home/ryan/code/klippy/apps/agent
+> vitest run
+
+
+ RUN  v5.0.5 /home/ryan/code/klippy/apps/agent
+
+Using secrets defined in .dev.vars
+Using secrets defined in .dev.vars
+Using secrets defined in .dev.vars
+
+ Test Files  3 passed (3)
+      Tests  14 passed (14)
+   Start at  17:37:23
+   Duration  2.90s (transform 53%, tests 27%, import 19%, worker 1%)
+

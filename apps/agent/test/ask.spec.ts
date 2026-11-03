@@ -6,8 +6,8 @@ import { fakeModel } from './fake-model';
 const fake = vi.hoisted(() => ({ model: undefined as ReturnType<typeof fakeModel> | undefined }));
 vi.mock('../src/model', () => ({ model: () => fake.model }));
 
-function ask(body: string) {
-	return SELF.fetch('https://example.com/ask', { method: 'POST', body });
+function ask(body: string, headers: Record<string, string> = { Authorization: 'Bearer test-token' }) {
+	return SELF.fetch('https://example.com/ask', { method: 'POST', body, headers });
 }
 
 describe('POST /ask', () => {
@@ -30,5 +30,22 @@ describe('POST /ask', () => {
 	])('refuses %s with a 400', async (_name, body) => {
 		const response = await ask(body);
 		expect(response.status).toBe(400);
+	});
+
+	it.each([
+		['no token', {}],
+		['a wrong token', { Authorization: 'Bearer nope' }],
+		['the token without "Bearer"', { Authorization: 'test-token' }],
+	])('refuses %s with a 401', async (_name, headers: Record<string, string>) => {
+		const response = await ask('{"question": "hi"}', headers);
+		expect(response.status).toBe(401);
+	});
+
+	it('allows 10 questions a minute from one address, then answers 429', async () => {
+		fake.model = fakeModel('ok');
+		const headers = { Authorization: 'Bearer test-token', 'cf-connecting-ip': '203.0.113.7' };
+		const statuses = [];
+		for (let i = 0; i < 11; i++) statuses.push((await ask('{"question": "hi"}', headers)).status);
+		expect(statuses).toEqual([...Array(10).fill(200), 429]);
 	});
 });

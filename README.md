@@ -10,7 +10,7 @@ lesson you're on and compare:
 ```sh
 git clone https://github.com/ryanyogan/klippy
 cd klippy
-git checkout a-03
+git checkout a-05
 ```
 
 | Tags | Course |
@@ -28,6 +28,12 @@ recorded.
 - A free Cloudflare account
 - For Claude: an Anthropic API key stored in your own AI Gateway (BYOK). Without one, Klippy can
   run on a free Workers AI model by changing one line.
+
+## Local secrets
+
+From `a-05`, `/ask` needs a token. Copy `apps/agent/.dev.vars.example` to `apps/agent/.dev.vars` and
+set `KLIPPY_TOKEN` (for example, `openssl rand -hex 32`). When you deploy, set the same name with
+`wrangler secret put KLIPPY_TOKEN`.
 
 ## License
 
