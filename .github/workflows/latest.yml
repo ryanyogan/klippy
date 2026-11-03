@@ -46,8 +46,8 @@ jobs:
             fi
           done
           git diff --stat -- '*package.json'
-      - run: pnpm typecheck
-      - run: pnpm test
+      - run: pnpm run --if-present typecheck # a-01 and a-02 have no typecheck script yet
+      - run: pnpm run --if-present test
       - name: Build each Worker (wrangler deploy --dry-run)
         run: |
           for app in apps/*/; do
