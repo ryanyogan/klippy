@@ -1,0 +1,19 @@
+{
+	"name": "agent",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"test": "vitest run",
+		"cf-typegen": "wrangler types"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-plugin": "1.5.1",
+		"@types/node": "26.6.6",
+		"typescript": "5.9.3",
+		"vitest": "5.0.5",
+		"wrangler": "4.157.0"
+	}
+}

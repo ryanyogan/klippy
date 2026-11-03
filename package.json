@@ -1,0 +1,10 @@
+{
+  "name": "klippy",
+  "private": true,
+  "packageManager": "pnpm@10.34.9",
+  "scripts": {
+    "dev": "pnpm --filter agent run dev",
+    "test": "pnpm --recursive run test",
+    "deploy": "pnpm --filter agent run deploy"
+  }
+}

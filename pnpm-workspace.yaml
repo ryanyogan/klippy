@@ -1,0 +1,8 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# workerd (the Workers runtime) and esbuild download native binaries when they install.
+onlyBuiltDependencies:
+  - esbuild
+  - workerd
