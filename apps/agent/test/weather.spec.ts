@@ -41,6 +41,20 @@ describe('getWeather', () => {
 		expect(JSON.stringify(toolMessage)).toContain('partly cloudy');
 	});
 
+	it('logs one line per step: the tool call, then the answer', async () => {
+		fakeOpenMeteo();
+		const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+		fake.model = fakeModel({ tool: 'getWeather', input: { place: 'Berlin' } }, 'Cloudy, 5.6°C.');
+
+		await ask('What is the weather in Berlin?');
+		const steps = log.mock.calls.map(([line]) => JSON.parse(line));
+		expect(steps).toMatchObject([
+			{ step: 0, finish: 'tool-calls', toolCalls: [{ tool: 'getWeather', input: { place: 'Berlin' } }] },
+			{ step: 1, finish: 'stop', toolCalls: [], text: 'Cloudy, 5.6°C.' },
+		]);
+		expect(steps[0].toolResults[0].output).toMatchObject({ place: 'Berlin, Germany', temperatureC: 5.6 });
+	});
+
 	it('says so when the place does not exist', async () => {
 		fakeOpenMeteo();
 		fake.model = fakeModel({ tool: 'getWeather', input: { place: 'Nowhere' } }, 'I could not find that place.');

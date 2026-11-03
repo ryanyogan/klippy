@@ -1,0 +1,67 @@
+# b-03 Watch one round trip. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, agents 0.33.0, ai 7.0.162, zod 4.6.7.
+# MODEL: no Anthropic key on the gateway, so the Workers AI fallback (@cf/zai-org/glm-4.7-flash) answered.
+# Notes for the writer:
+# - The plan says onStepFinish; in ai 7.0.162 onStepFinish is a deprecated alias of onStepEnd. Teach onStepEnd.
+# - The two JSON lines in Terminal 1 are the round trip: step 0 ends with finish "tool-calls" (the model asked for
+#   getWeather; the SDK ran it and recorded toolResults), step 1 ends with "stop" (the answer). generateText's text is
+#   the last step's text only, so step 0's "I'll get the weather..." never reaches the reply.
+# - tokens grows from step 0 to step 1 because step 1 re-sends the conversation plus the tool result.
+
+## Terminal 1: pnpm dev
+
+> klippy@ dev /home/ryan/code/klippy
+> pnpm --filter agent run dev --port 8801
+
+
+> agent@0.0.0 dev /home/ryan/code/klippy/apps/agent
+> wrangler dev --port 8801
+
+
+ ⛅️ wrangler 4.157.0
+────────────────────
+Using secrets defined in .dev.vars
+Your Worker has access to the following bindings:
+Binding                                 Resource                  Mode
+env.AI                                  AI                        remote
+env.LIMITER (10 requests/60s)           Rate Limit                local
+env.KLIPPY_TOKEN ("(hidden)")           Environment Variable      local
+
+⎔ Establishing remote connection...
+⎔ Starting local server...
+[wrangler:info] Ready on http://localhost:8801
+[wrangler:info] GET / 200 OK (6041ms)
+{"step":0,"finish":"tool-calls","toolCalls":[{"tool":"getWeather","input":{"place":"Lisbon"}}],"toolResults":[{"tool":"getWeather","output":{"place":"Lisbon, Portugal","temperatureC":14.7,"windKmh":10.4,"conditions":"clear sky"}}],"text":"I'll get the current weather information for Lisbon for you.","tokens":246}
+{"step":1,"finish":"stop","toolCalls":[],"toolResults":[],"text":"The current weather in Lisbon, Portugal is 14.7°C with light winds of 10.4 km/h and clear skies.","tokens":317}
+[wrangler:info] POST /ask 200 OK (7390ms)
+
+## Terminal 2
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"What is the weather in Lisbon?"}'
+{"answer":"The current weather in Lisbon, Portugal is 14.7°C with light winds of 10.4 km/h and clear skies.","model":"@cf/zai-org/glm-4.7-flash"}
+$ pnpm typecheck
+
+> klippy@ typecheck /home/ryan/code/klippy
+> pnpm --recursive run typecheck
+
+
+> agent@0.0.0 typecheck /home/ryan/code/klippy/apps/agent
+> tsc --noEmit && tsc --noEmit -p test
+
+
+$ pnpm test
+
+> klippy@ test /home/ryan/code/klippy
+> pnpm --recursive run test
+
+
+> agent@0.0.0 test /home/ryan/code/klippy/apps/agent
+> vitest run
+
+
+ RUN  v5.0.5 /home/ryan/code/klippy/apps/agent
+
+
+ Test Files  4 passed (4)
+      Tests  17 passed (17)
+   Start at  17:42:10
+   Duration  2.71s (transform 75%, import 20%, tests 4%, worker 1%)
+
