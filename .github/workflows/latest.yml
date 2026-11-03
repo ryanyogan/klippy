@@ -20,7 +20,12 @@ jobs:
         with:
           fetch-depth: 0
       - id: list
-        run: echo "tags=$(git tag --list '[a-g]-[0-9][0-9]' --sort=v:refname | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+        # Every lesson tag that has code (a package.json). a-01 is only a README and a license.
+        run: |
+          tags=$(for t in $(git tag --list '[a-g]-[0-9][0-9]' --sort=v:refname); do
+            git cat-file -e "$t:package.json" 2>/dev/null && echo "$t"
+          done | jq -R . | jq -sc .)
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
 
   replay:
     needs: tags
@@ -46,7 +51,7 @@ jobs:
             fi
           done
           git diff --stat -- '*package.json'
-      - run: pnpm run --if-present typecheck # a-01 and a-02 have no typecheck script yet
+      - run: pnpm run --if-present typecheck # a-02 has no typecheck script yet
       - run: pnpm run --if-present test
       - name: Build each Worker (wrangler deploy --dry-run)
         run: |
