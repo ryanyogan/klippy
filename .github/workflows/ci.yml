@@ -1,0 +1,31 @@
+# This repo's own checks: every push and pull request must typecheck, pass its tests and build each Worker.
+# (Course F, lesson F6, adds the deploy job.)
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6 # reads the pnpm version from package.json "packageManager"
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Build each Worker (wrangler deploy --dry-run)
+        run: |
+          for app in apps/*/; do
+            if [ -f "$app/wrangler.jsonc" ]; then
+              (cd "$app" && pnpm exec wrangler deploy --dry-run)
+            fi
+          done

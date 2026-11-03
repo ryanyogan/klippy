@@ -1,0 +1,72 @@
+# Weekly: replay every lesson tag against the latest releases of the packages that change fastest,
+# so we hear about upstream churn before learners do. Opens an issue when a tag breaks.
+name: latest
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays, 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tags:
+    runs-on: ubuntu-latest
+    outputs:
+      tags: ${{ steps.list.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: list
+        run: echo "tags=$(git tag --list '[a-g]-[0-9][0-9]' --sort=v:refname | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+
+  replay:
+    needs: tags
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: ${{ fromJSON(needs.tags.outputs.tags) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.tag }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - run: pnpm install --frozen-lockfile
+      - name: Bump the fast movers to latest (only where a package uses them)
+        run: |
+          for pkg in agents @cloudflare/ai-chat ai wrangler remix; do
+            if grep -rqs --include=package.json "\"$pkg\":" apps packages; then
+              pnpm --recursive update --latest "$pkg"
+            fi
+          done
+          git diff --stat -- '*package.json'
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Build each Worker (wrangler deploy --dry-run)
+        run: |
+          for app in apps/*/; do
+            if [ -f "$app/wrangler.jsonc" ]; then
+              (cd "$app" && pnpm exec wrangler deploy --dry-run)
+            fi
+          done
+
+  report:
+    needs: replay
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --repo "${{ github.repository }}" \
+            --title "Weekly latest run failed ($(date -u +%F))" \
+            --body "At least one lesson tag broke against the latest releases. Failed jobs: $RUN_URL"
