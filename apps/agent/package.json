@@ -9,11 +9,13 @@
 		"start": "wrangler dev",
 		"test": "vitest run",
 		"cf-typegen": "wrangler types",
-		"typecheck": "tsc --noEmit && tsc --noEmit -p test"
+		"typecheck": "tsc --noEmit && tsc --noEmit -p test",
+		"chat": "tsx --env-file=.dev.vars scripts/chat.ts"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-plugin": "1.5.1",
 		"@types/node": "26.6.6",
+		"tsx": "4.23.15",
 		"typescript": "5.9.3",
 		"vitest": "5.0.5",
 		"wrangler": "4.157.0"

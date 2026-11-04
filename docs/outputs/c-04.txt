@@ -1,0 +1,74 @@
+# c-04 Talk to Klippy from your terminal. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, agents 0.33.0,
+# @cloudflare/ai-chat 0.12.2, ai 7.0.162, tsx 4.23.15 (versions checked with `npm view` on 2026-11-03).
+# MODEL: no Anthropic key on the gateway, so the Workers AI fallback (@cf/zai-org/glm-4.7-flash) answered. The local
+# traces (wrangler's Local Explorer, spans table) show gateway calls answering 400 and then 200: Claude refused for
+# "Insufficient balance", then the fallback answered (the a-04 pattern). Re-record with Claude once the gateway has a key.
+#
+# Notes for the writer:
+# - What changed: `pnpm add -D tsx` (back again, for scripts), scripts/chat.ts (41 lines; split it over 3-4 steps:
+#   connect, load history, the read loop, printing the stream), a `chat` script in package.json
+#   (`tsx --env-file=.dev.vars scripts/chat.ts`), scripts/ in tsconfig "include".
+# - How it works: AgentClient (agents/client) opens ONE WebSocket to /agents/klippy/<name>?token=...; the Worker allows
+#   the query token only on that upgrade (c-03). WebSocketChatTransport (agents/chat/transport) speaks the chat
+#   protocol over it; readUIMessageStream (ai) turns the chunks into a growing assistant message, and the script prints
+#   only the new characters. History is loaded first with GET /agents/klippy/<name>/get-messages (Authorization header),
+#   because the transport sends the whole conversation each turn and the agent keeps the real copy.
+# - KLIPPY_URL defaults to http://localhost:8787 (wrangler's default port); this recording used port 8801, so it set
+#   KLIPPY_URL=http://localhost:8801. Against a deploy: KLIPPY_URL=https://klippy.<subdomain>.workers.dev pnpm chat.
+# - The input lines were piped in (printf ... | pnpm chat sam), so they don't echo after "you>". Typed by hand, they do.
+# - What it shows: one conversation per name, kept in the Durable Object across runs ("sam" remembers, "alex" doesn't).
+#   That's short-term memory: the chat history. c-05 adds facts that outlive it.
+# - Resumable streams: the agent buffers stream chunks in SQLite, so a client that reconnects mid-reply can resume it
+#   (installed docs resumable-streaming.md). This script doesn't demo a drop; mention it, don't promise more.
+# - "Hi Sam!" to "What is my name?" is the fallback model's wording (it answered the name by greeting); fine to show.
+# - No new tests: the script is a client; typecheck covers it, and the agent's tests are c-03's.
+
+## Terminal 1: pnpm dev --port 8801 (request log only)
+
+[wrangler:info] Ready on http://localhost:8801
+[wrangler:info] GET /agents/klippy/ryan/get-messages 200 OK (29ms)
+[wrangler:info] GET /agents/klippy/ryan 101 Switching Protocols (31ms)
+[wrangler:info] GET /agents/klippy/sam/get-messages 200 OK (34ms)
+[wrangler:info] GET /agents/klippy/sam 101 Switching Protocols (38ms)
+[wrangler:info] GET /agents/klippy/sam/get-messages 200 OK (16ms)
+[wrangler:info] GET /agents/klippy/sam 101 Switching Protocols (19ms)
+[wrangler:info] GET /agents/klippy/alex/get-messages 200 OK (32ms)
+[wrangler:info] GET /agents/klippy/alex 101 Switching Protocols (33ms)
+
+## Terminal 2: printf "Hi, I am Sam.\nWhat is the weather in Dublin right now?\n" | KLIPPY_URL=http://localhost:8801 pnpm chat sam
+# (the GET /agents/klippy/ryan lines above are an earlier take that crashed on a readline bug, since fixed: it called
+#  prompt() after piped input closed the interface. Not shown.)
+
+
+> agent@0.0.0 chat /home/ryan/code/klippy/apps/agent
+> tsx --env-file=.dev.vars scripts/chat.ts sam
+
+Talking to Klippy "sam" (0 messages so far). Ctrl+D to quit.
+you> klippy> Hello Sam! I'm Klippy, your friendly personal assistant. How can I help you today?
+you> klippy> It's currently 11°C (52°F) in Dublin with clear skies and light winds at 17.6 km/h.
+you> 
+## Again, a new run, same name: printf "What is my name?\n" | KLIPPY_URL=http://localhost:8801 pnpm chat sam
+
+
+> agent@0.0.0 chat /home/ryan/code/klippy/apps/agent
+> tsx --env-file=.dev.vars scripts/chat.ts sam
+
+Talking to Klippy "sam" (4 messages so far). Ctrl+D to quit.
+you> klippy> Hi Sam!
+you> 
+## A different name: printf "What is my name?\n" | KLIPPY_URL=http://localhost:8801 pnpm chat alex
+
+
+> agent@0.0.0 chat /home/ryan/code/klippy/apps/agent
+> tsx --env-file=.dev.vars scripts/chat.ts alex
+
+Talking to Klippy "alex" (0 messages so far). Ctrl+D to quit.
+you> klippy> I don't have any information about you or your name. I'm Klippy, your personal assistant, but I don't have access to your personal details or memory across conversations. Could you please tell me what you'd like help with today?
+you> 
+## pnpm typecheck && pnpm test
+typecheck: no errors
+ Test Files  10 passed (10)
+      Tests  43 passed (43)
+
+## pnpm exec wrangler deploy --dry-run (apps/agent)
+Total Upload: 3673.74 KiB / gzip: 709.93 KiB
