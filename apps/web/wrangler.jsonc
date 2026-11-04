@@ -20,7 +20,12 @@
 		}
 	],
 	// /klippy/check is public: at most 10 calls a minute per address. (namespace_id: any number unique in your account.)
-	"ratelimits": [{ "name": "CHECK_LIMITER", "namespace_id": "1002", "simple": { "limit": 10, "period": 60 } }],
+	"ratelimits": [
+		{ "name": "CHECK_LIMITER", "namespace_id": "1002", "simple": { "limit": 10, "period": 60 } },
+		// Signed-in routes that reach your agent: at most 30 a minute per GitHub account (f-03). Keyed by who you are, not
+		// your address: many people can share one address, and one person can have many.
+		{ "name": "USER_LIMITER", "namespace_id": "1003", "simple": { "limit": 30, "period": 60 } }
+	],
 	"vars": {
 		// Your deployed web app's address (GitHub sends you back here). .dev.vars sets http://localhost:8802 locally.
 		"APP_ORIGIN": "https://klippy-web.YOUR-SUBDOMAIN.workers.dev",

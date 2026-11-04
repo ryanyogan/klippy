@@ -2,6 +2,7 @@ import { redirect } from 'remix/response/redirect';
 import { createController } from 'remix/router';
 import { agentFetch } from '../../agent.ts';
 import { agentName, requireUser } from '../../auth.ts';
+import { tooMany, underUserLimit } from '../../limits.ts';
 import { routes } from '../../routes.ts';
 
 // The agent checks for 1 MB too; this stops a bigger body before the web app reads it.
@@ -13,6 +14,7 @@ export default createController(routes.sources, {
 	actions: {
 		// POST /sources/file (a form with a "file" field): pass the file on to your Klippy, which ingests it.
 		async upload(context) {
+			if (!(await underUserLimit(context.auth.identity))) return tooMany();
 			const request = context.request;
 			const type = request.headers.get('Content-Type') ?? '';
 			const size = Number(request.headers.get('Content-Length') ?? NaN);
@@ -31,6 +33,7 @@ export default createController(routes.sources, {
 		},
 		// GET /sources/search?q=...: what search finds in your saved sources, as JSON (the agent checks q and rate-limits).
 		async search(context) {
+			if (!(await underUserLimit(context.auth.identity))) return tooMany();
 			const q = context.url.searchParams.get('q') ?? '';
 			const reply = await agentFetch(`/agents/klippy/${agentName(context.auth.identity)}/search?q=${encodeURIComponent(q)}`);
 			return new Response(reply.body, { status: reply.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });

@@ -1,0 +1,55 @@
+# f-03 Limits that hold. Recorded 2026-11-03 on Linux, Node v24.22.2, agents 0.33.0, ai 7.0.162, wrangler 4.157.0
+# (versions checked with `npm view` the same day).
+#
+# Notes for the writer:
+# - What changed:
+#     apps/agent/src/budget.ts      tokensToday / spend / dailyBudget: a usage(day, tokens) table in the agent's own SQLite
+#     apps/agent/src/agent.ts       before the model: refuse once tokensToday >= DAILY_TOKEN_BUDGET ("I've used today's
+#                                   budget..."); streamText onFinish: spend(totalUsage.totalTokens), every step of the turn
+#     apps/agent/wrangler.jsonc     vars.DAILY_TOKEN_BUDGET = "200000" (a var, so you change it without code; --var in dev)
+#     apps/agent/test/budget.spec.ts   counts both steps of a tool turn (30 with the fake model); refuses without calling the
+#                                   model once spent; one Klippy's spend never touches another's
+#     apps/web/wrangler.jsonc       USER_LIMITER (namespace 1003, 30 per 60 s)
+#     apps/web/app/limits.ts        underUserLimit(user): key gh-<GitHub id>, never the address
+#     apps/web/app/actions/sources/controller.tsx, actions/controller.tsx   upload, search and each new chat socket count
+#     both worker-configuration.d.ts regenerated (wrangler types)
+# - FACTS CHECKED (Workers Rate Limiting docs, last updated 2026-10-21, read 2026-11-03 maxAge 0): period must be 10 or
+#   60; limits are approximate and per Cloudflare location (requests can exceed them while counts sync); keys should be
+#   a user or API key, NOT an IP (many users share one); for a strict limit use a Durable Object. That's the lesson's
+#   split: the binding stops bursts, the Durable Object (each Klippy's SQLite) holds the exact daily budget.
+# - Limits stack, outermost first: web USER_LIMITER (30/min per GitHub id) -> agent LIMITER per Klippy (chat 10/min,
+#   search 10/min, file 10/min; since c-03/e-02/e-05) -> the daily token budget -> maxOutputTokens 300 and 8 steps a turn.
+#   The public /klippy/check stays limited by address (no user to key on) plus its shared probe key and cache.
+# - The budget is checked before a turn and charged after it, so the last turn of the day can overshoot by one turn
+#   (at most 8 steps x (prompt + 300 output tokens)). Say so; it's the price of not guessing a turn's size up front.
+# - What's not counted: /ask and /note (token-only routes, no web path to them) and the ingest context step (capped at
+#   30 sources a day per Klippy, e-02). Gateway spend limits (f-02) are the account-wide backstop in dollars.
+# - FALLBACK: the chat reply below is glm-4.7-flash (no Anthropic key on the gateway). With a budget of 500, the first
+#   turn ran (0 < 500 when it started) and spent more than 500 (system prompt + 10 tool definitions), so the next two
+#   were refused without a model call.
+# - The web smoke used the local-only test cookie for GitHub id 1.
+
+## Verification (real, 2026-11-03)
+
+$ pnpm typecheck        -> ok (agent, web)
+$ pnpm test             -> agent 23 files, 101 tests; web 3; data-table-d1 24; all passed
+$ (apps/agent) pnpm exec wrangler deploy --dry-run   -> Total Upload: 4078.39 KiB / gzip: 782.65 KiB
+     env.DAILY_TOKEN_BUDGET ("200000")   Environment Variable
+$ (apps/web) pnpm exec wrangler deploy --dry-run     -> Total Upload: 990.98 KiB / gzip: 197.79 KiB
+     env.USER_LIMITER (30 requests/60s)  Rate Limit
+
+$ pnpm dev:web          (8802)
+$ for i in $(seq 1 32); do curl -s -o /dev/null -w "%{http_code} " -b <test cookie> "localhost:8802/sources/search?q=pip"; done
+200 200 200 200 200 200 200 200 200 200 429 429 429 429 429 429 429 429 429 429 429 429 429 429 429 429 429 429 429 429 429 429 
+(the 429s from the 11th on are the AGENT's own search limit, 10/min per Klippy, passed through: body {"error":"Too many requests. Wait a minute."})
+$ (61 s later) 32 posts to /sources/file without a file: the web app answers 400 itself, until ITS per-user limit (30/min) says 429
+400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 400 429 429 
+Too many requests. Wait a minute.
+
+$ pnpm exec wrangler dev --port 8801 --var DAILY_TOKEN_BUDGET:500   (a tiny budget, to see it run out)
+$ KLIPPY_URL=http://localhost:8801 pnpm chat f03-budget-920
+Talking to Klippy "f03-budget-920" (0 messages so far). /clear to start over, Ctrl+D to quit.
+you> klippy> Hello there! How can I help you today?
+you> klippy> I've used today's budget. Talk tomorrow (it resets at midnight UTC).
+you> klippy> I've used today's budget. Talk tomorrow (it resets at midnight UTC).
+you> 

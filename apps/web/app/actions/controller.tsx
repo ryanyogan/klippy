@@ -1,6 +1,7 @@
 import { createController } from 'remix/router';
 import { agentFetch, loadHistory } from '../agent.ts';
 import { agentName, requireUser } from '../auth.ts';
+import { tooMany, underUserLimit } from '../limits.ts';
 import { routes } from '../routes.ts';
 import { HomePage } from './home-page.tsx';
 
@@ -28,6 +29,8 @@ export default createController(routes, {
 			if (request.headers.get('Origin') !== context.url.origin) {
 				return new Response('Wrong origin', { status: 403 });
 			}
+			// Each new socket counts (a reconnect loop can't hammer the agent); the messages on it are limited by the agent.
+			if (!(await underUserLimit(context.auth.identity))) return tooMany();
 			const headers = new Headers(request.headers);
 			headers.delete('Cookie'); // the agent doesn't need your session cookie
 			return agentFetch(`/agents/klippy/${agentName(context.auth.identity)}`, { headers });

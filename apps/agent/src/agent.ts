@@ -1,6 +1,7 @@
 import { AIChatAgent } from '@cloudflare/ai-chat';
 import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, isStepCount, streamText, tool, type ToolSet, type UIMessage } from 'ai';
 import { MAX_QUESTION, OUT_OF_STEPS } from './ask';
+import { dailyBudget, spend, tokensToday } from './budget';
 import { underLimit } from './guard';
 import { model } from './model';
 import { facts, memoryTools } from './tools/memory';
@@ -32,6 +33,10 @@ export class Klippy extends AIChatAgent {
 		}
 		if (!(await underLimit(this.env, `chat:${this.name}`))) {
 			return new Response('Too many messages. Wait a minute.');
+		}
+		// The daily budget, checked BEFORE the model is called: a turn that can't afford it never starts.
+		if (tokensToday(this) >= dailyBudget(this.env)) {
+			return new Response("I've used today's budget. Talk tomorrow (it resets at midnight UTC).");
 		}
 		// Read the facts fresh every turn, so the model sees what it remembered a moment ago.
 		const known = facts(this).map(({ id, fact }) => `${id}: ${fact}`);
@@ -73,6 +78,8 @@ export class Klippy extends AIChatAgent {
 				return { activeTools };
 			},
 			abortSignal: options?.abortSignal, // the client cancelled: stop paying for tokens
+			// When the turn ends (or pauses for your y/n), add what every step spent to today's total.
+			onFinish: ({ totalUsage }) => spend(this, totalUsage.totalTokens ?? 0),
 		});
 		// Pass the reply through as it streams. If the cap stopped it mid tool-call, end with an honest sentence, as /ask does.
 		const stream = createUIMessageStream({

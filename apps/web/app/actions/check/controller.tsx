@@ -6,7 +6,7 @@ import { routes } from '../../routes.ts';
 import { CheckQuery } from './schema.ts';
 
 // GET /klippy/check?nonce=...: bits calls this to check that your Klippy is on the web. Public (the grader isn't
-// signed in), so it's rate limited here, and the agent's own check caches its probe and limits fresh ones (a-05).
+// signed in), so it's rate limited here by address (there's no user to key on), and the agent's own check caches its probe and limits fresh ones (a-05).
 export default createController(routes.check, {
 	actions: {
 		async index(context) {
