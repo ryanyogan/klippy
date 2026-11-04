@@ -1,0 +1,57 @@
+# d-01 Your coding agent. Recorded 2026-11-03 on Linux, Node v24.22.2, Claude Code 2.1.317 (npm latest that day:
+# @anthropic-ai/claude-code 2.1.318, checked with `npm view`).
+#
+# Notes for the writer:
+# - What changed: AGENTS.md at the repo root (30 lines). No code.
+# - Claude Code reads AGENTS.md on its own when there's no CLAUDE.md (code.claude.com/docs/en/memory, checked
+#   2026-11-03 with Firecrawl maxAge 0: "An AGENTS.md, and no CLAUDE.md … → your AGENTS.md"; if a CLAUDE.md exists,
+#   put `@AGENTS.md` at its top). The docs suggest under 200 lines; ours is 30 on purpose.
+# - How this file was made: the lane R agent wrote AGENTS.md against the prompt below (it is not a recorded fresh
+#   Claude Code run of that prompt). The check at the bottom *is* a real Claude Code run.
+# - Install line for the lesson (re-check on the day): `npm install -g @anthropic-ai/claude-code`, then `claude` in
+#   the repo. (Writer: confirm the current install command on code.claude.com/docs before publishing.)
+
+## The prompt (start Claude Code in ~/code/klippy at tag c-09, then paste)
+
+Goal: write AGENTS.md for this repo, so every future session starts knowing how Klippy is built and checked.
+Read README.md, package.json, apps/agent/package.json and apps/agent/wrangler.jsonc first. Don't read every file.
+Constraints:
+- Under 60 lines. Only what you can't learn quickly from the code: layout, commands, rules, "done means".
+- Rules to include: read installed docs for agents/ai/remix; exact pinned versions; tests never call a real model;
+  secrets only in .dev.vars and wrangler secret put; budget routes keep token, rate limit and input cap.
+- Create only AGENTS.md. Don't change any other file.
+Plan first: show me the outline, then wait for my go-ahead.
+Done when the file exists and `wc -l AGENTS.md` is under 60.
+Report the line count and anything you left out on purpose.
+
+# Why each line: goal + why (judgement calls); where to look (a few files, not the whole repo: context is a budget);
+# constraints (size cap, the rules we care about, one file); plan first (a wrong outline is cheap to fix); a check it
+# runs itself; a report, never "it should work".
+
+## What to expect
+- One new file, AGENTS.md. Our file: 30 lines, sections Layout / Commands / Rules / Done means.
+- The agent may offer `/init` instead. That's fine as a start, but /init writes a long file from the code; cut it
+  down to what the code can't tell you.
+
+## Review checklist
+- [ ] Under 60 lines; every line is something you'd otherwise have to say again in each session.
+- [ ] Commands are ones that exist (`pnpm typecheck`, `pnpm test`, `pnpm dev`). Run one to be sure.
+- [ ] No secret, token or account id in the file.
+- [ ] Reject: a file listing every source file, generic advice ("write clean code"), or rules you don't follow.
+
+## Steer prompts (the usual misses)
+- "You listed every file in apps/agent/src. Remove the file list; keep only the four folders and what each holds."
+- "You wrote `npm run test`. This repo uses pnpm: change the commands to `pnpm …` and run `pnpm test` once to check."
+
+## Verification (real, 2026-11-03)
+
+$ wc -l AGENTS.md
+30 AGENTS.md
+
+$ claude -p "Without reading any files, answer from your project instructions only: what must be true before you say a change is done, and where do secrets go? Two short lines." --max-turns 1
+Done means `pnpm typecheck` and `pnpm test` both pass, and I've said what I ran and what I saw.
+
+Secrets go in `.dev.vars` (gitignored) for local use and in `wrangler secret put` for deployed Workers, and a real key is never written into a file.
+
+# Both answers are AGENTS.md's wording. The prompt said not to read files, and --max-turns 1 leaves no room for a
+# tool call and its result, so they came from the instructions Claude Code loaded at start.
