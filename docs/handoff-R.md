@@ -1,4 +1,4 @@
-# Lane R handoff (2026-11-03)
+# Lane R handoff (2026-11-03, after c-09)
 
 Lane R builds this repo, the reference for bits' build-along courses (bits `docs/plans/build-along.md`,
 decision 071). Read that plan (§1–§5, lane R in §7) and bits `docs/plans/build-along/s0.md` first.
@@ -31,30 +31,57 @@ the day. Tests never call a real model or the real internet. The repo stays loca
 | b-08 | 85b5961 | `readLink` = `webFetchTool` (pageChars 8000, maxRedirects 0) wrapped to allow only the exact links in the question; `prepareStep` drops note tools after a page read (lethal trifecta); `preview()` in logs. Amended twice after security reviews |
 | b-09 | 8bf953b | checkpoint: `TAG = 'b-09'`, `isStepCount(3)` + honest "ran out of steps" answer; remote D1 schema applied; deploy dry-run only |
 | c-01 | 9e46c1b | sandbox lesson, note only |
+| c-02 | 528e377 | `scripts/loop.ts` (30 lines, `@anthropic-ai/sdk` 1.4.0 + `tsx` 4.23.15 dev deps, `claude-haiku-5-5`), fake-client test; `"type": "module"` in apps/agent. **Live run PENDING** (no key) |
+| c-03 | 3a08324 | loop script deleted; `@cloudflare/ai-chat` 0.12.2, `nodejs_compat`, DO `Klippy` + migration v1, `Klippy extends AIChatAgent`, `/agents/*` behind the token. Amended after security review: `?token=` only on the WebSocket upgrade, stripped before routing |
+| c-04 | 6d6c2b2 | `pnpm chat <name>`: `scripts/chat.ts` (AgentClient + WebSocketChatTransport + readUIMessageStream) |
+| c-05 | 9ab10c6 | `remember` / `forget` (facts table in agent SQL, 50 × 200 chars), facts in the system prompt per turn, `/clear` |
+| c-06 | 99ad5c4 | notes tools in the agent, `saveNote` with `needsApproval`; the terminal answers y/n (`cf_agent_tool_approval` + continuation stream) |
+| c-07 | fc5272c | `isStepCount(8)`, repeat-call guard (`toolChoice: 'none'`), readLink back; no notes/memory/reminder tools once a page is anywhere in the chat |
+| c-08 | 8e619d8 | `remindMe` → `schedule()` → `nudge()` → `saveMessages`; amended after security review: nudge turns get no tools, nudge messages carry `metadata.nudge` and never feed readLink's allowlist, 10 waiting / 20 fired per day |
+| c-09 | f4e67b7 | checkpoint: `TAG = 'c-09'`; local tour + check recorded; deploy dry-run only |
 
 a-04 and a-05 were amended (and re-tagged) after two security reviews from the lead. The notes in
 `docs/outputs/a-04.txt` and `a-05.txt` tell the writer what to teach about them.
 
-Verified 2026-11-03: every tag from a-03 to b-09 passes typecheck and tests in a clean worktree
+Verified 2026-11-03: every tag from c-02 to c-09 passes install (frozen lockfile), typecheck, tests and
+`wrangler deploy --dry-run` in a clean worktree (c-09: 14 files, 57 tests). Every tag from c-03 to c-09 was smoked
+on 8801 with `wrangler dev` (curl, and `pnpm chat` from c-04). Before that: every tag from a-03 to b-09 passes typecheck and tests in a clean worktree
 (`git worktree add` + `pnpm install --frozen-lockfile`). a-02 has tests but no typecheck script yet, and
 a-01 has no code. Every tag from a-04 to b-04 was smoked live on 8801 (outputs in `docs/outputs/`).
 
 ## Next
 
-1. **c-02** (write the loop by hand, once): `scripts/loop.ts` with `@anthropic-ai/sdk` + `tsx` (dev deps), ~30 lines,
-   then deleted in the same lesson (so the tag likely holds it, and c-03 removes it, or the tag shows it and the note
-   says "delete it"). Blocker: a live run needs a real Anthropic key (the `default` gateway has none; unified billing
-   says "Insufficient balance"). Options: record with the owner's key later, or run it once against the gateway's
-   Anthropic endpoint after BYOK. Don't fake the output. Check `npm view @anthropic-ai/sdk version` and `tsx` that day.
-2. c-03 … c-09 (plan §3 C): `AIChatAgent` from `@cloudflare/ai-chat` 0.12.2 (S0 report has the working shape),
-   `durable_objects` + `new_sqlite_classes`, `routeAgentRequest`; terminal chat `scripts/chat.ts` (`agents/client`);
-   `remember`/`forget` in agent SQL; `needsApproval` on `saveNote`; caps (`prepareStep`); `schedule()`. Bump `TAG` to
-   `c-09` at the checkpoint. Keep the b-08 rules when readLink moves into the agent (exact links, no redirects, no notes
-   tools after a page read) and the token / limit / caps on every route that spends model or D1 budget.
-3. The owner (or a lane allowed to deploy) records the live deploys for a-05 and b-09: commands at the top of
-   `docs/outputs/a-05.txt` and `b-09.txt`. The remote `klippy-db` schema is applied (0001_notes).
+1. **Pending recordings** (nothing below was faked; each output file says what's missing):
+   - c-02, the hand-written loop against Claude itself. Needs a real Anthropic API key:
+     ```sh
+     cd ~/code/klippy && git checkout c-02 && pnpm install --frozen-lockfile
+     cd apps/agent && echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .dev.vars
+     pnpm loop "What time is it right now?" 2>&1 | tee -a ../../docs/outputs/c-02.txt
+     git checkout master   # then commit the output on c-02's commit (amend + re-tag), as the other tags were
+     ```
+   - With Claude instead of the Workers AI fallback (after storing the Anthropic key on the `default` gateway, BYOK):
+     re-record a-04 … c-09. The c-course commands are in each `docs/outputs/c-0N.txt` heading (`pnpm dev --port 8801`
+     in one terminal, the `printf … | KLIPPY_URL=http://localhost:8801 pnpm chat <name>` line in another).
+   - Live deploys for a-05, b-09 and c-09 (commands at the top of those output files). The c-09 deploy creates the
+     Durable Object (migration v1).
+2. Course D (plan §3 D): the web front end over the agent. The S0 report has the island + service-binding shape.
+   `scripts/chat.ts` is the reference for the client protocol (history, approvals, continuations, server-driven turns).
+3. Known gap to decide: when the 8-step cap stops a chat turn mid tool-call, the reply has no text (c-07 notes).
 
 ## Gotchas
+
+- **Tokens in URLs** (security review, c-03): the Authorization header everywhere; `?token=` only on the
+  `Upgrade: websocket` request under `/agents/`, deleted from the URL before `routeAgentRequest`. Never log URLs.
+- **Agent tests**: `env.Klippy.getByName(name).saveMessages([...])` drives a turn; `runInDurableObject` reaches
+  methods and `this.sql`; `vi.mock('../src/model')` applies inside the DO. The fake model has `doStream` now.
+  Approvals are answered over a real socket (`SELF.fetch` with `Upgrade: websocket` + `?token=`), see approval.spec.
+- **AIChatAgent without `<Env>`**: the test-only `TEST_MIGRATIONS` binding widens `Cloudflare.Env`; `<Env>` breaks the
+  constraint. `underLimit` takes `Pick<Env, 'LIMITER'>`.
+- **Terminal client protocol** (no React hook): continuation after an approval needs `transport.expectToolContinuation()`,
+  `reconnectToStream()`, routing `cf_agent_stream_pending/resuming/resume_none` to the transport, and
+  `readUIMessageStream({ stream, message })` with the paused message, or the stream ends at the tool output.
+- **Piped `pnpm chat`**: input lines don't echo; keep stdin open (`(printf …; sleep 100) | pnpm chat`) to see a reminder.
+- `nudge()` is a public method (the scheduler calls it by name); it's not `@callable`, so clients can't call it.
 
 - **The D1 driver** is `packages/data-table-d1` (copied from bits, owner 2026-11-03: not on npm "for now"). Its imports
   end in `.ts`, so `apps/agent/tsconfig.json` has `allowImportingTsExtensions`. Its 24 tests run with `remix test` on
