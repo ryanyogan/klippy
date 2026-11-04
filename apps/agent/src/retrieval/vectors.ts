@@ -13,12 +13,13 @@ export type ChunkRow = { id: number; owner: string; source_id: number; context?:
 
 // Store one vector per chunk. The id ties it to the chunk row in D1, and the metadata says whose it is,
 // so a search can ask for one Klippy's chunks only (owner has a metadata index). Upsert: a retry overwrites.
-export async function upsertChunks(env: Env, rows: ChunkRow[]) {
+// prefix: the vector id is <prefix><chunk id>. The app uses 'chunk-'; the eval uses its own, so its ids are its own.
+export async function upsertChunks(env: Env, rows: ChunkRow[], prefix = 'chunk-') {
 	if (rows.length === 0) return 0;
 	// The context sentence goes in front of the chunk, so the vector carries where the chunk came from.
 	const vectors = await embed(env, rows.map((row) => (row.context ? `${row.context}\n\n${row.text}` : row.text)));
 	await env.VECTORIZE.upsert(
-		rows.map((row, i) => ({ id: `chunk-${row.id}`, values: vectors[i], metadata: { owner: row.owner, sourceId: row.source_id } })),
+		rows.map((row, i) => ({ id: `${prefix}${row.id}`, values: vectors[i], metadata: { owner: row.owner, sourceId: row.source_id } })),
 	);
 	return rows.length;
 }
@@ -27,5 +28,5 @@ export async function upsertChunks(env: Env, rows: ChunkRow[]) {
 export async function vectorSearch(env: Env, owner: string, question: string, topK = 20): Promise<number[]> {
 	const [vector] = await embed(env, [question]);
 	const { matches } = await env.VECTORIZE.query(vector, { topK, filter: { owner } });
-	return matches.map((match) => Number(match.id.replace('chunk-', '')));
+	return matches.map((match) => Number(/(\d+)$/.exec(match.id)?.[1])).filter(Number.isInteger); // the chunk id ends the vector id
 }

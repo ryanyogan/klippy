@@ -1,0 +1,87 @@
+# e-09 Checkpoint: ask my notes. Recorded 2026-11-03 on Linux, Node v24.22.2, agents 0.33.0, ai 7.0.162,
+# wrangler 4.157.0 (versions checked with `npm view` the same day).
+#
+# Notes for the writer:
+# - What changed:
+#     apps/agent/src/check.ts, test/check.spec.ts   TAG = 'e-09'
+#     SECURITY FIX FORWARD (the eval from e-08):
+#     apps/agent/wrangler.jsonc                     a second Vectorize binding, VECTORIZE_EVAL -> klippy-notes-eval
+#                                                   (created: wrangler vectorize create klippy-notes-eval --dimensions=768
+#                                                   --metric=cosine, plus the owner metadata index). No app code reads it.
+#     apps/agent/vitest.eval.config.mts             refuses to start unless VECTORIZE_EVAL's index_name ends in -eval
+#     apps/agent/test/eval/retrieval.eval.ts        runs every search on a copy of env whose VECTORIZE is the eval index;
+#                                                   refuses to run without the -eval name; vector ids are
+#                                                   eval-<time>-chunk-<id>; deletes only ids with that prefix, only from the
+#                                                   eval index; waits until ALL its vectors are visible (it waited for the
+#                                                   first one, which gave a bogus "vectors only 0.17" on a half-built index)
+#     apps/agent/src/retrieval/vectors.ts           upsertChunks(env, rows, prefix = 'chunk-'); vectorSearch reads the
+#                                                   chunk id from the end of the vector id
+#     apps/agent/test/vectors.spec.ts               a test for the prefix and the id parsing
+#     apps/agent/worker-configuration.d.ts          regenerated (VECTORIZE_EVAL)
+# - WHY THE FIX (say it in the lesson notes and the e-08 page): e-08's eval upserted `chunk-<local D1 id>` (1, 2, 3...)
+#   into the REAL klippy-notes index and then deleted those ids. A learner's real chunks have the same kind of ids, so
+#   running e-08's eval could overwrite and then delete real vectors. Never run `pnpm eval:retrieval` at tag e-08 against
+#   a real index; use e-09 or later. (On the recording account it touched only dev-smoke vectors.)
+# - The checkpoint joins course E: save links (asks first), send files, ingest in a Workflow (Markdown, chunks, context,
+#   vectors), hybrid search + rerank, answers with [n] citations, "That's not in your notes." when the passages don't
+#   answer, the retrieval cut, and the measurement. The /klippy/check probe is unchanged (no tools, cached, limited).
+# - Search is per Klippy (owner = its name). The first chat below used a fresh name, so it had no sources and every
+#   search came back empty: the owner wall working, not a bug. The tour then uses "me", which has the saved files.
+# - NOT DONE (owner): remote D1 migrations 0002-0005 and the live deploy. `wrangler d1 migrations apply DB --remote` was
+#   denied by the permission classifier as a production action, so it's on the checklist (handoff-R.md).
+# - FALLBACK: all model text below is Workers AI glm-4.7-flash (no Anthropic key on the gateway).
+
+## Verification (real, 2026-11-03)
+
+$ pnpm typecheck        -> ok (agent, web)
+$ pnpm test             -> agent 21 files, 96 tests; web 3; data-table-d1 24; all passed
+$ (apps/agent) pnpm exec wrangler deploy --dry-run   -> Total Upload: 4076.39 KiB / gzip: 781.91 KiB
+     env.INGEST (IngestWorkflow) Workflow; env.VECTORIZE (klippy-notes) Vectorize Index
+$ (apps/web) pnpm exec wrangler deploy --dry-run     -> Total Upload: 987.49 KiB / gzip: 196.84 KiB
+
+$ pnpm exec wrangler dev --port 8801
+$ curl -s "http://localhost:8801/klippy/check?nonce=checkpoint-e09"
+{"nonce":"checkpoint-e09","tag":"e-09","probe":{"answer":"Hi bits! You're looking incredibly elegant in binary.","model":"@cf/zai-org/glm-4.7-flash"}}
+
+$ KLIPPY_URL=http://localhost:8801 pnpm chat checkpoint-e09      (a Klippy with nothing saved)
+you> What time does my Lisbon flight leave? Check my notes.
+klippy> That's not in your notes. Would you like to provide me with the flight details, or check the current time in Lisbon to help you figure it out?
+you> What is my bank PIN? Check my notes.
+klippy> That's not in your notes.
+tool parts: {"input":{"query":"Lisbon flight"},"top":[]}  {"input":{"query":"bank PIN"},"top":[]}
+
+$ KLIPPY_URL=http://localhost:8801 pnpm chat me                  (has pip.md, ui-brief.md, trip.md)
+you> /clear
+you> What day is my Lisbon flight? Check my notes.
+klippy> Your Lisbon flight is on a Friday [1].
+you> What is my bank PIN? Check my notes.
+klippy> That's not in your notes.
+tool parts: {"input":{"query":"Lisbon flight"},"top":["trip.md","ui-brief.md","ui-brief.md","ui-brief.md","ui-brief.md"]}
+            {"input":{"query":"bank PIN"},"top":["ui-brief.md","ui-brief.md","ui-brief.md","ui-brief.md","ui-brief.md"]}
+
+$ pnpm eval:retrieval --reporter=verbose      (now against klippy-notes-eval only)
+⎔ Establishing remote connection...
+Using secrets defined in .dev.vars
+stdout | test/eval/retrieval.eval.ts > recall@5 over 12 questions
+keywords only               1.00
+vectors only                1.00
+hybrid                      1.00
+hybrid + rerank             1.00
+hybrid + rerank, recall@1   0.92
+ok   What vegetable does my dog like? -> pip.md
+ok   When are the vaccinations due for the dog? -> pip.md
+ok   What is the flight number to Portugal? -> lisbon-trip.md
+ok   Which tram should we take early? -> lisbon-trip.md
+ok   What pressure for the tyres? -> bike.md
+ok   How often should I oil the chain? -> bike.md
+ok   How much salt goes in the bread? -> sourdough.md
+ok   What temperature do I bake the loaf at? -> sourdough.md
+ok   When is the quarterly review? -> work-notes.md
+MISS How do we undo a bad release? -> bike.md
+ok   When can the tomatoes be planted outside? -> garden.md
+ok   How do I get rid of slugs? -> garden.md
+ ✓ test/eval/retrieval.eval.ts > recall@5 over 12 questions 13744ms
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  21:02:49
+   Duration  137.25s (tests 98%, transform 1%)

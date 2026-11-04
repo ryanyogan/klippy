@@ -8,9 +8,15 @@ import { type ChunkRow, upsertChunks, vectorSearch } from '../../src/retrieval/v
 import { documents, questions } from './corpus';
 import { recallAt } from './recall';
 
-// A real measurement, not a test: real Workers AI embeddings and reranker, the real Vectorize index (vitest.eval.config
-// turns remote bindings on), and a local D1. Its vectors use a fresh owner, deleted at the end. No chat model is called.
+// A real measurement, not a test: real Workers AI embeddings and reranker, a real Vectorize index (vitest.eval.config
+// turns remote bindings on), and a local D1. No chat model is called.
+// Safety (fixed in e-09): everything runs against VECTORIZE_EVAL, a separate *-eval index, never your real one. The app's
+// functions take env, so they get a copy whose VECTORIZE is the eval index. Vector ids start with this run's own
+// prefix, and only those ids are deleted at the end.
+if (!String(env.EVAL_INDEX).endsWith('-eval')) throw new Error('Refusing to run: VECTORIZE_EVAL is not an *-eval index.');
+const evalEnv = { ...env, VECTORIZE: env.VECTORIZE_EVAL } as Env;
 const owner = `eval-${Date.now()}`;
+const prefix = `${owner}-chunk-`;
 const ids: string[] = [];
 
 beforeAll(async () => {
@@ -19,15 +25,16 @@ beforeAll(async () => {
 		const source = await queueSource(env.DB, { owner, kind: 'file', title, body });
 		await saveChunks(env.DB, source!, chunk(body));
 		const { results } = await env.DB.prepare('SELECT id, owner, source_id, context, text FROM chunks WHERE source_id = ?').bind(source!.id).all<ChunkRow>();
-		await upsertChunks(env, results);
-		ids.push(...results.map((row) => `chunk-${row.id}`));
+		await upsertChunks(evalEnv, results, prefix);
+		ids.push(...results.map((row) => `${prefix}${row.id}`));
 	}
-	// Vectorize is eventually consistent: wait until a search sees this owner's vectors (up to 3 minutes).
-	for (let i = 0; i < 36 && (await vectorSearch(env, owner, 'Pip')).length === 0; i++) await new Promise((r) => setTimeout(r, 5000));
+	// Vectorize is eventually consistent: wait until a search sees ALL of this run's vectors (up to 3 minutes). Before
+	// e-09 it waited for the first one only, so "vectors only" could be measured on a half-built index.
+	for (let i = 0; i < 36 && (await vectorSearch(evalEnv, owner, 'Pip', 50)).length < ids.length; i++) await new Promise((r) => setTimeout(r, 5000));
 }, 240_000);
 
 afterAll(async () => {
-	await env.VECTORIZE.deleteByIds(ids);
+	if (ids.every((id) => id.startsWith(prefix))) await env.VECTORIZE_EVAL.deleteByIds(ids);
 });
 
 it('recall@5 over 12 questions', async () => {
@@ -35,10 +42,10 @@ it('recall@5 over 12 questions', async () => {
 	const keyword: string[][] = [], vector: string[][] = [], hybrid: string[][] = [], reranked: string[][] = [];
 	for (const { q } of questions) {
 		keyword.push(await titles((await keywordSearch(env.DB, owner, q)).slice(0, 5)));
-		vector.push(await titles((await vectorSearch(env, owner, q)).slice(0, 5)));
-		const candidates = await hybridSearch(env, owner, q, 20);
+		vector.push(await titles((await vectorSearch(evalEnv, owner, q)).slice(0, 5)));
+		const candidates = await hybridSearch(evalEnv, owner, q, 20);
 		hybrid.push(candidates.slice(0, 5).map((hit) => hit.title));
-		reranked.push((await rerank(env, q, candidates, 5)).map((hit) => hit.title));
+		reranked.push((await rerank(evalEnv, q, candidates, 5)).map((hit) => hit.title));
 	}
 	const answers = questions.map((question) => question.answer);
 	const report = {

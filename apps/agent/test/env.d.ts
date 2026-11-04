@@ -5,6 +5,7 @@ declare global {
 	namespace Cloudflare {
 		interface Env {
 			TEST_MIGRATIONS: D1Migration[];
+			EVAL_INDEX?: string; // vitest.eval.config.mts only
 		}
 	}
 }

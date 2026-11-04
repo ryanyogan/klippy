@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMBEDDING_MODEL, upsertChunks } from '../src/retrieval/vectors';
+import { EMBEDDING_MODEL, upsertChunks, vectorSearch } from '../src/retrieval/vectors';
 
 // A stand-in env: Workers AI returns one tiny vector per text, Vectorize records what it's given.
 function fakeEnv() {
@@ -30,6 +30,17 @@ describe('upsertChunks', () => {
 		const { env, calls } = fakeEnv();
 		await upsertChunks(env, [{ id: 9, owner: 'gh-1', source_id: 4, context: 'From the Pip page.', text: 'She likes carrots.' }]);
 		expect(calls.run).toEqual([{ model: EMBEDDING_MODEL, input: { text: ['From the Pip page.\n\nShe likes carrots.'] } }]);
+	});
+
+	it('takes an id prefix (the eval uses its own), and vectorSearch reads the chunk id from the end of any id', async () => {
+		const { env, calls } = fakeEnv();
+		await upsertChunks(env, [{ id: 5, owner: 'eval-1', source_id: 1, text: 't' }], 'eval-1-chunk-');
+		expect(calls.upsert[0][0].id).toBe('eval-1-chunk-5');
+		const searchEnv = {
+			...env,
+			VECTORIZE: { query: async () => ({ matches: [{ id: 'chunk-12' }, { id: 'eval-1-chunk-5' }, { id: 'junk' }], count: 3 }) },
+		} as unknown as Env;
+		expect(await vectorSearch(searchEnv, 'eval-1', 'q')).toEqual([12, 5]);
 	});
 
 	it('calls nothing for a source with no chunks', async () => {
