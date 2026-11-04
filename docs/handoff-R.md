@@ -1,4 +1,4 @@
-# Lane R handoff (2026-11-03, after d-11: course D done)
+# Lane R handoff (2026-11-03, after e-09: course E done)
 
 Lane R builds this repo, the reference for bits' build-along courses (bits `docs/plans/build-along.md`,
 decision 071). Read that plan (§1–§5, lane R in §7) and bits `docs/plans/build-along/s0.md` first.
@@ -8,7 +8,9 @@ decision 071). Read that plan (§1–§5, lane R in §7) and bits `docs/plans/bu
 One commit and one annotated tag per lesson, in course order (`a-01` … `f-08`). Each tag is green
 (typecheck, tests, a `wrangler dev` smoke on port 8801 where relevant) and has its real output in
 `docs/outputs/<tag>.txt`. Small steps a beginner can follow. Pinned versions, checked with `npm view` on
-the day. Tests never call a real model or the real internet. The repo stays local: no GitHub repo, no push.
+the day. Tests never call a real model or the real internet. The repo is PUBLIC at github.com/ryanyogan/klippy with
+CI on every push: push main and each new tag as you go (`git push origin main --follow-tags`). Pushed tags are public:
+never rewrite or force-push them; fix forward in the next tag and say so in its output.
 
 ## Done
 
@@ -51,12 +53,24 @@ the day. Tests never call a real model or the real internet. The repo stays loca
 | d-10 | 06d162e | a **real** `claude -p` plan-mode review of the diff (verbatim in d-10.txt), then fixes: `ChatSession` (TypedEventTarget) out of the component, no stuck states, failed send keeps text, parts in order, agent's saved copy applied after a reply (Deny → "You said no") |
 | d-11 | f322060 | checkpoint: `TAG = 'd-11'`; public `GET /klippy/check` on web (own controller, data-schema nonce, `CHECK_LIMITER` 10/min per address, ns 1002) proxying the agent's check; `deploy:web`; both dry-runs build. Live deploy PENDING |
 
+| e-01 | 54f2741 | sandbox lesson, note only (paste vs search, caching first) |
+| e-02 | (see `git log`) | `sources` table (0002, owner = Klippy name, kind note/link/file, note_id FK cascade); `IngestWorkflow` (AgentWorkflow): load → fetch (fetchWeb from `agents/webfetch`, private hosts refused, no redirects, 1 MB, retries 3) → store → ready / failed; `saveLink` (needsApproval, typed links only, private set behind afterPage); chat `saveNote` also queues the note; `POST /agents/klippy/<name>/file` (DO `onRequest`, text/markdown/html/pdf, 1 MB, toMarkdown); 30 sources/day |
+| e-03 | | `chunks` (0003, FK cascade); `chunk.ts` (paragraphs, headings, 1,200 chars, 200 overlap); `saveChunks` one idempotent batch, ≤ 50 |
+| e-04 | | Vectorize `klippy-notes` (768, cosine, metadata index `owner`) **created on the owner's account**, binding `VECTORIZE` remote; step `embed` (bge-base-en-v1.5), ids `chunk-<id>`, metadata { owner, sourceId } |
+| e-05 | | FTS5 `chunks_fts` (0004, external content + triggers), `rrf.ts`, `keywordSearch` (quoted words), `hybridSearch`, `hydrate` (owner re-checked); `GET /agents/klippy/<name>/search?q=` (rate-limited) |
+| e-06 | | `chunks.context` + FTS rebuilt (0005); `contextModel` = `ai(anthropic('claude-haiku-5-5'))` (@ai-sdk/anthropic 4.0.96, provider-native path so cacheControl reaches Claude) + GLM fallback; one Workflow step per chunk; context embedded and indexed |
+| e-07 | | `rerank.ts` (bge-reranker-base); `searchNotes` (hybrid 20 → rerank 5, wrapped `<untrusted_saved_content>`, numbered); system prompt cites [n] / "That's not in your notes."; **retrieval cut**: after searchNotes (turn or chat) every writing tool (remember, forget, remindMe, saveNote, saveLink) throws and only READ_ONLY is offered; web `Sources` shows "[n] title" |
+| e-08 | | `pnpm eval:retrieval` (vitest.eval.config.mts, remote bindings), 6 docs / 12 questions, recall@5. **Bug: used the real index with colliding ids — fixed in e-09; never run e-08's eval** |
+| e-09 | | checkpoint `TAG = 'e-09'`; eval fix forward: `VECTORIZE_EVAL` → `klippy-notes-eval` (created), -eval name guard, prefixed ids, deletes only its own; waits for all vectors |
+
 c-07 was amended (2026-11-03, after two security reviews): the honest "ran out of steps" text when the 8-step cap stops a turn mid tool-call (`OUT_OF_STEPS` shared with /ask), and the page cut enforced three ways (no private tools built when a page is in the chat; prepareStep fail-closed; `afterPage()` makes notes/memory/remind tools throw once readLink ran in the turn). c-08 rebased: nudge turns build no tools at all. c-07…c-09 re-tagged; 58/64/64 tests.
 
 a-04 and a-05 were amended (and re-tagged) after two security reviews from the lead. The notes in
 `docs/outputs/a-04.txt` and `a-05.txt` tell the writer what to teach about them.
 
-Verified 2026-11-03: d-08…d-11 each pass frozen install, typecheck and tests in a clean worktree (agent 64, web 3, driver 24), d-11's web dry-run also from a clean worktree (986 KiB); d-08…d-11 smoked on 8802. Earlier: c-07, c-08, c-09 and d-01…d-07 pass frozen install, typecheck and tests in a clean worktree (d-07: agent 64 tests + web 3). d-05…d-07 smoked with `pnpm dev:web` on 8802 (curl; outputs in docs/outputs). Earlier: every tag from c-02 to c-09 passes install (frozen lockfile), typecheck, tests and
+Verified 2026-11-03: e-02…e-09 each pass frozen install, typecheck and tests in a clean worktree (e-09: agent 96, web 3,
+driver 24) and are green in GitHub Actions (main and tag runs); each was smoked on 8801 (outputs in docs/outputs).
+Before: d-08…d-11 each pass frozen install, typecheck and tests in a clean worktree (agent 64, web 3, driver 24), d-11's web dry-run also from a clean worktree (986 KiB); d-08…d-11 smoked on 8802. Earlier: c-07, c-08, c-09 and d-01…d-07 pass frozen install, typecheck and tests in a clean worktree (d-07: agent 64 tests + web 3). d-05…d-07 smoked with `pnpm dev:web` on 8802 (curl; outputs in docs/outputs). Earlier: every tag from c-02 to c-09 passes install (frozen lockfile), typecheck, tests and
 `wrangler deploy --dry-run` in a clean worktree (c-09: 14 files, 57 tests). Every tag from c-03 to c-09 was smoked
 on 8801 with `wrangler dev` (curl, and `pnpm chat` from c-04). Before that: every tag from a-03 to b-09 passes typecheck and tests in a clean worktree
 (`git worktree add` + `pnpm install --frozen-lockfile`). a-02 has tests but no typecheck script yet, and
@@ -64,8 +78,13 @@ a-01 has no code. Every tag from a-04 to b-04 was smoked live on 8801 (outputs i
 
 ## Next
 
-1. Course D is done at d-11. Next lane work: course E (retrieval) from d-11, per plan §3 E.
-2. Everything still waiting on the owner is in the checklist below. Nothing was deployed or pushed.
+1. Course F (`f-01` … `f-08`) from e-09, per bits plan §3 F: F1 close the side door (`workers_dev: false` on the agent;
+   file upload and search then need a path through the web app's service binding), F2 gateway caching/metadata
+   (`createAI({ cacheTtl, metadata })`, see installed `agents/docs/models.md` "Options"), F3 per-user limit + daily token
+   budget, F4 structured logs + a saved query, F5 safety (poisoned page AND poisoned saved note tests), F6 CI deploy job
+   (gate it on `CLOUDFLARE_API_TOKEN` being set, so it skips until the owner adds secrets; don't deploy), F7 custom
+   domain + previews (config/docs only), F8 checkpoint.
+2. Everything waiting on the owner is in the checklist below.
 
 ## Owner checklist (every PENDING item, all tags; nothing here was faked)
 
@@ -101,11 +120,25 @@ Workers AI fallback (`@cf/zai-org/glm-4.7-flash`) and each output says so.
    Untested: whether `secrets.required` lets the first `secret put` precede the first deploy (it should create the
    Worker); if not, deploy once, then put the secrets.
 8. **Re-record with Claude** (after 1): a-04 … d-11 model outputs, which are all fallback answers now.
-9. **GitHub repo + CI**: create github.com/ryanyogan/klippy (public, MIT), push master and tags, confirm `ci.yml` is
-   green on every tag; add `CLOUDFLARE_*` secrets only when course F's deploy job lands. actionlint never ran
-   (denied locally).
+9. **GitHub CI**: done (repo public, CI green on e-01…e-09). Add `CLOUDFLARE_*` secrets only when course F's deploy job
+   lands. actionlint never ran (denied locally).
+10. **Remote D1 migrations 0002–0005** (course E): `cd apps/agent && pnpm exec wrangler d1 migrations apply DB --remote`.
+    The lane's attempt was denied by the permission classifier (production action). Needed before any deploy of e-02+.
+11. **Re-record e-06 with Claude** (after 1): contexts came from the GLM fallback and `cachedTokens` was 0; expect a cache
+    hit from the second chunk of a document over 512 tokens.
+12. **Vectorize indexes on the account**: `klippy-notes` (app) and `klippy-notes-eval` (eval only), both 768/cosine with an
+    `owner` metadata index. Learners create their own; ours hold dev-smoke vectors only.
 
 ## Gotchas
+
+- **Course E**: Vectorize is eventually consistent (vectors queryable ~1 min after upsert; deletes lag too). There's no
+  local Vectorize: `remote: true` in dev, a mocked `src/retrieval/vectors` in tests. The local AI binding refuses to run
+  in tests ("Binding AI needs to be run remotely"), so any test that runs the ingest Workflow must mock
+  `src/retrieval/vectors` and `src/ingest/context` (approval.spec does). Workflows in tests: `introspectWorkflow(env.INGEST)`
+  + `disableRetryDelays()` + `waitForStatus`; explicit `dispose()` (the test tsconfig has no AsyncDisposable lib).
+  `wrangler types` drops `query` from the bge-reranker input type (worked around in rerank.ts). Search is per owner
+  (agent name): a fresh name has no sources. `pnpm eval:retrieval` needs `--reporter=verbose` to show its report.
+- **Permission classifier**: `wrangler d1 migrations apply --remote` was denied as a production deploy. Don't work around.
 
 - **Island props are typed serializable**: `clientEntry` rejects `UIMessage[]` (metadata: unknown); the prop is
   `SerializableObject[]` and the island casts once (`as unknown as UIMessage[]`).
