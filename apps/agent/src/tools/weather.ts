@@ -30,6 +30,8 @@ export const getWeather = tool({
 
 async function getJson(url: string) {
 	const response = await fetch(url);
+	// A failed call is a result too: throw, and Claude is told the tool failed, so it can say so honestly.
+	if (!response.ok) throw new Error(`The weather service is not answering (HTTP ${response.status}). Try again later.`);
 	return response.json<any>();
 }
 

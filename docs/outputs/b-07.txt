@@ -1,0 +1,98 @@
+# b-07 Strict inputs, honest failures. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, agents 0.33.0, ai 7.0.162, zod 4.6.7, remix 3.1.0.
+# MODEL: no Anthropic key on the gateway, so the Workers AI fallback (@cf/zai-org/glm-4.7-flash) answered.
+# Notes for the writer:
+# - New here: getTime's timeZone has a zod .refine() (a real IANA zone, checked with Intl.DateTimeFormat);
+#   getWeather throws when Open-Meteo answers with an HTTP error; the step log gains "toolErrors".
+#   test/failures.spec.ts covers a bad time zone and a 502 from the weather service.
+# - Two kinds of failure, both become an error RESULT that goes back to Claude (AI SDK "tool-error" parts, which reach
+#   Claude as an is_error tool_result), and the loop carries on so Claude can say what went wrong:
+#     1. bad input: the schema or a refinement rejects it before execute runs (AI_InvalidToolInputError);
+#     2. a failed call: execute throws (here: the weather service is down).
+#   A refinement is invisible to Claude: JSON Schema can't say "a real time zone", so Claude sees a string and your
+#   code checks the meaning. The error message is written for Claude ("Use a name like Europe/Berlin").
+# - STRICT, honestly: the AI SDK has `strict: true` per tool, and Claude supports strict tool use on all models
+#   (platform.claude.com strict-tool-use, checked 2026-11-03; strict schemas can't use minLength/maxLength/minimum/
+#   maximum, per the structured-outputs limits). BUT agents 0.33.0's createAI drops the flag: its toolFields() in
+#   agents/dist/ai-sdk-*.js sends only name, description and parameters (read 2026-11-03). So the repo doesn't set
+#   strict, because a flag that does nothing would mislead. Teach strict as a concept and say why it isn't on here;
+#   the refinement + error results are what Klippy relies on. Re-check when agents updates.
+# - The recording: Lisbon used the tool normally; "Mars/Olympus_Mons" failed the refinement, and the model said so.
+
+## Terminal 1: pnpm dev (trimmed as in b-05)
+
+> klippy@ dev /home/ryan/code/klippy
+> pnpm --filter agent run dev --port 8801
+
+
+> agent@0.0.0 dev /home/ryan/code/klippy/apps/agent
+> wrangler dev --port 8801
+
+
+ ⛅️ wrangler 4.157.0
+────────────────────
+Using secrets defined in .dev.vars
+Your Worker has access to the following bindings:
+Binding                                 Resource                  Mode
+env.DB (klippy-db)                      D1 Database               local
+env.AI                                  AI                        remote
+env.LIMITER (10 requests/60s)           Rate Limit                local
+env.KLIPPY_TOKEN ("(hidden)")           Environment Variable      local
+
+⎔ Establishing remote connection...
+⎔ Starting local server...
+[wrangler:info] Ready on http://localhost:8801
+{"step":0,"finish":"tool-calls","toolCalls":[{"tool":"getWeather","input":{"place":"Lisbon"}}],"toolResults":[{"tool":"getWeather","output":{"place":"Lisbon, Portugal","temperatureC":14.3,"windKmh":9.6,"conditions":"clear sky"}}],"toolErrors":[],"text":"","tokens":633}
+{"step":1,"finish":"stop","toolCalls":[],"toolResults":[],"toolErrors":[],"text":"It's 14.3°C in Lisbon with clear sky and light winds of 9.6 km/h.","tokens":700}
+[wrangler:info] POST /ask 200 OK (15748ms)
+{"step":0,"finish":"tool-calls","toolCalls":[{"tool":"getTime","input":{"timeZone":"Mars/Olympus_Mons"}}],"toolResults":[],"toolErrors":[{"tool":"getTime","error":"AI_InvalidToolInputError: Invalid input for tool getTime: AI_TypeValidationError: Type validation failed: Value: {\"timeZone\":\"Mars/Olympus_Mons\"}.\nError message: [\n  {\n    \"code\": \"custom\",\n    \"path\": [\n      \"timeZone\"\n    ],\n    \"message\": \"Not an IANA time zone. Use a name like \\\"Europe/Berlin\\\".\"\n  }\n]"}],"text":"","tokens":645}
+{"step":1,"finish":"stop","toolCalls":[],"toolResults":[],"toolErrors":[],"text":"The time zone \"Mars/Olympus_Mons\" isn't a valid IANA time zone that my tool recognizes. I can only provide times for authoritative timezone databases like those for Earth. For Mars, you'd need a specialized Mars timekeeping system not available in this tool.","tokens":817}
+[wrangler:info] POST /ask 200 OK (6003ms)
+
+## Terminal 2
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"What is the weather in Lisbon right now?"}'
+{"answer":"It's 14.3°C in Lisbon with clear sky and light winds of 9.6 km/h.","model":"@cf/zai-org/glm-4.7-flash"}
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"Use the time zone Mars/Olympus_Mons: what time is it there?"}'
+{"answer":"The time zone \"Mars/Olympus_Mons\" isn't a valid IANA time zone that my tool recognizes. I can only provide times for authoritative timezone databases like those for Earth. For Mars, you'd need a specialized Mars timekeeping system not available in this tool.","model":"@cf/zai-org/glm-4.7-flash"}
+$ pnpm typecheck
+
+> klippy@ typecheck /home/ryan/code/klippy
+> pnpm --recursive run typecheck
+
+Scope: 3 of 4 workspace projects
+packages/data-table-d1 typecheck$ tsc --noEmit
+packages/data-table-d1 typecheck: Done
+apps/agent typecheck$ tsc --noEmit && tsc --noEmit -p test
+apps/agent typecheck: Done
+
+$ pnpm test
+
+> klippy@ test /home/ryan/code/klippy
+> pnpm --recursive run test
+
+Scope: 3 of 4 workspace projects
+packages/data-table-d1 test$ NODE_ENV=test remix test
+packages/data-table-d1 test: Found 1 test file(s) (1 server, 0 browser, 0 e2e)
+packages/data-table-d1 test: Running server tests:
+packages/data-table-d1 test: ▶ D1 data-table driver (740.40ms) [server]
+packages/data-table-d1 test: ℹ files 1
+packages/data-table-d1 test: ℹ suites 1
+packages/data-table-d1 test: ℹ tests 24
+packages/data-table-d1 test: ℹ pass 24
+packages/data-table-d1 test: ℹ fail 0
+packages/data-table-d1 test: ℹ duration_ms 1424.84143
+packages/data-table-d1 test: Done
+apps/agent test$ vitest run
+apps/agent test:  RUN  v5.0.5 /home/ryan/code/klippy/apps/agent
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test:  Test Files  8 passed (8)
+apps/agent test:       Tests  27 passed (27)
+apps/agent test:    Start at  18:15:34
+apps/agent test:    Duration  2.86s (transform 79%, import 17%, tests 3%, worker 1%)
+apps/agent test: Done

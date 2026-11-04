@@ -31,6 +31,8 @@ export async function ask(env: Env, question: string, tools: ToolSet = allTools(
 					finish: step.finishReason, // "tool-calls": Claude wants a tool. "stop": it answered.
 					toolCalls: step.toolCalls.map((call) => ({ tool: call.toolName, input: call.input })),
 					toolResults: step.toolResults.map((result) => ({ tool: result.toolName, output: result.output })),
+					// A failed tool call (bad input, or a service that's down) goes back to Claude as an error.
+					toolErrors: step.content.flatMap((part) => (part.type === 'tool-error' ? [{ tool: part.toolName, error: String(part.error) }] : [])),
 					text: step.text,
 					tokens: step.usage.totalTokens,
 				}),
