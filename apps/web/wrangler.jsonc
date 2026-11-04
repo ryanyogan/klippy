@@ -6,6 +6,8 @@
 	"observability": { "enabled": true },
 	// Files in public/ (the stylesheet, later the island bundles) are served by Cloudflare before the Worker runs.
 	"assets": { "directory": "public" },
+	// Bundle the islands into public/assets before every `wrangler dev` and `wrangler deploy`.
+	"build": { "command": "pnpm build:client" },
 	// AGENT is the agent Worker ("klippy"), called like fetch() but Worker to Worker: no public internet in between.
 	"services": [{ "binding": "AGENT", "service": "klippy" }],
 	// The same D1 database as the agent: the notes Klippy saves are the notes you see here.

@@ -7,6 +7,7 @@
 		"node": ">=24.3.0"
 	},
 	"scripts": {
+		"build:client": "esbuild app/actions/public/entry.ts app/actions/public/chat.tsx --bundle --splitting --format=esm --minify --outdir=public/assets --jsx=automatic --jsx-import-source=remix/component",
 		"dev": "wrangler dev --port 8802 -c wrangler.jsonc -c ../agent/wrangler.jsonc",
 		"deploy": "wrangler deploy",
 		"cf-typegen": "wrangler types",
@@ -16,11 +17,13 @@
 	},
 	"dependencies": {
 		"@klippy/db": "workspace:*",
+		"agents": "0.33.0",
 		"ai": "7.0.162",
 		"data-table-d1": "workspace:*",
 		"remix": "3.1.0"
 	},
 	"devDependencies": {
+		"esbuild": "0.28.2",
 		"typescript": "5.9.3",
 		"wrangler": "4.157.0"
 	}

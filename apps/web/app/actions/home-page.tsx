@@ -1,11 +1,8 @@
 import type { Handle } from 'remix/component';
-import type { UIMessage } from 'ai';
+import type { History } from '../agent.ts';
 import type { User } from '../auth.ts';
-import { Conversation } from '../ui/conversation.tsx';
 import { Layout } from '../ui/layout.tsx';
-import { Message } from '../ui/message.tsx';
-
-type History = { messages: UIMessage[] } | { error: string };
+import { Chat } from './public/chat.tsx';
 
 export function HomePage(handle: Handle<{ user: User; agent: string; history: History }>) {
 	return () => {
@@ -21,11 +18,12 @@ export function HomePage(handle: Handle<{ user: User; agent: string; history: Hi
 						{history.error} Your chat can't load until it does.
 					</p>
 				) : (
-					<Conversation empty={history.messages.length === 0}>
-						{history.messages.map((message) => (
-							<Message key={message.id} message={message} />
-						))}
-					</Conversation>
+					<>
+						<Chat initial={history.messages} />
+						<noscript>
+							<p class="notice">The live chat needs JavaScript. Your saved chat is above.</p>
+						</noscript>
+					</>
 				)}
 			</Layout>
 		);

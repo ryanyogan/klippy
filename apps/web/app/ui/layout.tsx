@@ -12,6 +12,8 @@ export function Layout(handle: Handle<{ title: string; user?: User; current?: 'c
 				<meta name="color-scheme" content="light dark" />
 				<title>{handle.props.title}</title>
 				<link rel="stylesheet" href="/styles.css" />
+				{/* Starts the islands (the chat). Built by `pnpm build:client` into public/assets. */}
+				<script type="module" src="/assets/entry.js"></script>
 			</head>
 			<body>
 				<a class="skip" href="#main">

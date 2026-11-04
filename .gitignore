@@ -10,3 +10,6 @@ dist/
 # Skills are installed per machine from skills-lock.json (npx skills experimental_install); not committed.
 .claude/skills/
 .agents/skills/
+
+# The island bundles (pnpm build:client)
+apps/web/public/assets/

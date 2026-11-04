@@ -1,5 +1,5 @@
 import { createController } from 'remix/router';
-import { loadHistory } from '../agent.ts';
+import { agentFetch, loadHistory } from '../agent.ts';
 import { agentName, requireUser } from '../auth.ts';
 import { routes } from '../routes.ts';
 import { HomePage } from './home-page.tsx';
@@ -16,6 +16,21 @@ export default createController(routes, {
 			return context.render(<HomePage user={user} agent={name} history={history} />, {
 				status: 'error' in history ? 502 : 200,
 			});
+		},
+		// The chat island's WebSocket: check it, then hand it to your Klippy through the service binding.
+		// agentFetch adds the token here, on the server, so the browser never has it.
+		async chat(context) {
+			const request = context.request;
+			if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
+				return new Response('Expected a WebSocket', { status: 426 });
+			}
+			// cop() only guards form posts. A socket from another site's page would carry your cookie: refuse it.
+			if (request.headers.get('Origin') !== context.url.origin) {
+				return new Response('Wrong origin', { status: 403 });
+			}
+			const headers = new Headers(request.headers);
+			headers.delete('Cookie'); // the agent doesn't need your session cookie
+			return agentFetch(`/agents/klippy/${agentName(context.auth.identity)}`, { headers });
 		},
 	},
 });

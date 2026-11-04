@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import type { UIMessage } from 'ai';
+import type { SerializableObject } from 'remix/component';
 
 // Call the agent Worker through the service binding, with the agent's token. The token stays on the server:
 // the browser only ever talks to this web app.
@@ -9,9 +9,12 @@ export function agentFetch(path: string, init: RequestInit = {}) {
 	return env.AGENT.fetch(new URL(path, 'https://agent'), { ...init, headers });
 }
 
+// The saved messages, as the JSON the agent sent (they go straight into the chat island's props).
+export type History = { messages: SerializableObject[] } | { error: string };
+
 // Your saved chat, read from your Klippy. If the agent refuses (a wrong KLIPPY_TOKEN is a 401) or is down, say so:
 // an empty list would look exactly like "no messages yet" and hide the problem.
-export async function loadHistory(name: string): Promise<{ messages: UIMessage[] } | { error: string }> {
+export async function loadHistory(name: string): Promise<History> {
 	try {
 		const reply = await agentFetch(`/agents/klippy/${name}/get-messages`);
 		if (reply.ok) return { messages: await reply.json() };
