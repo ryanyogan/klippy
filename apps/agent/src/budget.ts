@@ -1,7 +1,7 @@
 import type { Klippy } from './agent';
 
 // A daily token budget per Klippy (f-03). The rate limit stops bursts; this stops a slow drip from running up a bill.
-// It lives in the agent's own SQLite, so it's exact: one Klippy, one writer, wherever the request came from.
+// It lives in the agent's own SQLite, so the count is exact: one Klippy, one writer. It's checked before each turn, so a day can go over by up to one turn.
 
 const today = () => new Date().toISOString().slice(0, 10); // the day, in UTC
 
