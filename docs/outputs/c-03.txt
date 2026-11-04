@@ -1,0 +1,109 @@
+# c-03 One Klippy per person. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, agents 0.33.0,
+# @cloudflare/ai-chat 0.12.2, ai 7.0.162 (versions checked with `npm view` on 2026-11-03).
+# MODEL: none called here. The recording checks the routes and the lock; the first real chat turn is in c-04,
+# where the terminal client arrives.
+#
+# Notes for the writer:
+# - c-02's scripts/loop.ts, its test, and the @anthropic-ai/sdk + tsx dev dependencies are deleted here (the "delete it"
+#   step of c-02; say so at the top of c-03 so the diff makes sense).
+# - What changed: `pnpm add @cloudflare/ai-chat`; wrangler.jsonc gets "compatibility_flags": ["nodejs_compat"]
+#   (agents needs it, installed docs configuration.md), a durable_objects binding "Klippy" and a migration
+#   { tag "v1", new_sqlite_classes ["Klippy"] }; `wrangler types` regenerated (env.Klippy is a DurableObjectNamespace);
+#   src/agent.ts (Klippy extends AIChatAgent, onChatMessage with streamText); src/index.ts exports Klippy and sends
+#   /agents/* through routeAgentRequest behind the token; the token goes in the Authorization header everywhere, except
+#   on the WebSocket upgrade under /agents/, which may send ?token= (isOwner(request, env, allowQuery)). The Worker
+#   deletes the token from the URL before routeAgentRequest, so the agent never sees or logs it.
+# - AIChatAgent is used without <Env>: the test's TEST_MIGRATIONS binding widens Cloudflare.Env and `<Env>` then fails
+#   the constraint. this.env is typed from Cloudflare.Env, which is the same bindings. underLimit takes Pick<Env,'LIMITER'>.
+# - Locks on the agent (budget rules): the token on every /agents/ request (WebSocket and HTTP); in onChatMessage a
+#   2,000-character cap on the newest message (refused with a plain reply, no model call; over-long messages are also
+#   filtered out of what's sent to the model later), the shared limiter at 10 turns a minute per Klippy name
+#   (key "chat:<name>"), maxOutputTokens 300, isStepCount(3), and maxPersistedMessages = 40, which caps the history
+#   each turn sends. Tools: getWeather and getTime only. The notes tools and readLink come back in c-06 with the
+#   approval and the "no notes after a page read" rule.
+# - Why only the WebSocket takes ?token= (security review, amended into this tag): a URL lands in logs and history,
+#   a header doesn't; but a WebSocket can't send custom headers (installed agents docs, cross-domain-authentication.md),
+#   so the socket's upgrade is the one place the token may ride in the query. Those docs advise a short-lived signed
+#   token over a raw secret in a URL; Klippy keeps one owner token for simplicity, so say so and point at that advice.
+#   Klippy never logs request URLs itself, and the recorded dev log below has no token in it. Still, the upgrade
+#   request itself carries the token in its URL, and Workers Logs record incoming request URLs: teach a long random
+#   token, rotated with `wrangler secret put KLIPPY_TOKEN` if it leaks.
+# - The tests reach the agent through its stub (env.Klippy.getByName(name).saveMessages(...)), the same call a server
+#   uses for server-driven turns (c-08), and read history from the built-in GET /agents/klippy/<name>/get-messages.
+#   The fake model gained doStream, so it answers streamText too. vi.mock('../src/model') reaches inside the Durable
+#   Object (same isolate under @cloudflare/vitest-plugin).
+
+
+ ✓ test/agent.spec.ts > Klippy, the agent > keeps one conversation per name 64ms
+ ✓ test/agent.spec.ts > Klippy, the agent > sends the whole conversation to the model each turn 37ms
+ ✓ test/agent.spec.ts > Klippy, the agent > refuses a message over 2,000 characters without calling the model 18ms
+ ✓ test/agent.spec.ts > Klippy, the agent > refuses no token with a 401 2ms
+ ✓ test/agent.spec.ts > Klippy, the agent > refuses a wrong token with a 401 1ms
+ ✓ test/agent.spec.ts > Klippy, the agent > refuses the token in the URL of an HTTP request with a 401 1ms
+ ✓ test/agent.spec.ts > Klippy, the agent > refuses the token in the URL on /ask too 2ms
+ ✓ test/agent.spec.ts > Klippy, the agent > takes the token in the URL when the request opens a WebSocket 7ms
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+
+## pnpm test (whole repo)
+ Test Files  10 passed (10)
+      Tests  43 passed (43)
+
+## pnpm dev (port 8801), then curl from a second terminal (KLIPPY_TOKEN from .dev.vars)
+
+
+> klippy@ dev /home/ryan/code/klippy
+> pnpm --filter agent run dev --port 8801
+
+
+> agent@0.0.0 dev /home/ryan/code/klippy/apps/agent
+> wrangler dev --port 8801
+
+
+ ⛅️ wrangler 4.157.0
+────────────────────
+Using secrets defined in .dev.vars
+Your Worker has access to the following bindings:
+Binding                                 Resource                  Mode
+env.Klippy (Klippy)                     Durable Object            local
+env.DB (klippy-db)                      D1 Database               local
+env.AI                                  AI                        remote
+env.LIMITER (10 requests/60s)           Rate Limit                local
+env.KLIPPY_TOKEN ("(hidden)")           Environment Variable      local
+
+⎔ Establishing remote connection...
+⎔ Starting local server...
+[wrangler:info] Ready on http://localhost:8801
+[wrangler:info] GET /agents/klippy/alice/get-messages 401 Unauthorized (18ms)
+[wrangler:info] GET /agents/klippy/alice/get-messages 200 OK (25ms)
+[wrangler:info] GET /agents/klippy/alice/get-messages 401 Unauthorized (4ms)
+[wrangler:info] GET /agents/klippy/alice 101 Switching Protocols (5ms)
+[wrangler:info] GET /agents/klippy/alice 401 Unauthorized (8ms)
+✘ [ERROR] The URL http://localhost:8801/agents/nobody/alice with namespace "nobody" and name "alice" does not match any Durable Object binding.
+
+
+[wrangler:info] GET /agents/nobody/alice 400 Bad Request (10ms)
+🪵  Logs were written to "/home/ryan/.config/.wrangler/logs/wrangler-2026-11-04_00-42-28_491.log"
+
+$ curl -s -i http://localhost:8801/agents/klippy/alice/get-messages
+HTTP/1.1 401 Unauthorized
+{"error":"Send Authorization: Bearer <your KLIPPY_TOKEN>"}
+$ curl -s -H "Authorization: Bearer $KLIPPY_TOKEN" http://localhost:8801/agents/klippy/alice/get-messages
+[]
+
+# The right token in the URL of a plain HTTP request is refused:
+$ curl -s -i "http://localhost:8801/agents/klippy/alice/get-messages?token=$KLIPPY_TOKEN" | head -1
+HTTP/1.1 401 Unauthorized
+
+# ...but a WebSocket upgrade may carry it (what agents/client does in c-04). curl shows the handshake, then gives up after 3 s:
+$ curl -s -i --max-time 3 -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" "http://localhost:8801/agents/klippy/alice?token=$KLIPPY_TOKEN" | head -1
+HTTP/1.1 101 Switching Protocols
+$ (the same without ?token=) | head -1
+HTTP/1.1 401 Unauthorized
+
+$ curl -s -i -H "Authorization: Bearer $KLIPPY_TOKEN" http://localhost:8801/agents/nobody/alice | head -1
+HTTP/1.1 400 Bad Request
+
+## pnpm exec wrangler deploy --dry-run (apps/agent): 3.6 MB now, up from 1.5 MB at b-09 (@cloudflare/ai-chat and nodejs_compat); the Workers limits apply to the gzip size (limits not re-checked in this lane)
+Total Upload: 3673.74 KiB / gzip: 709.93 KiB
+env.Klippy (Klippy)                Durable Object      

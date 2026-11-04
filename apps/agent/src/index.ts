@@ -1,7 +1,11 @@
+import { routeAgentRequest } from 'agents';
 import { ask, MAX_QUESTION } from './ask';
 import { check } from './check';
 import { clientAddress, isOwner, underLimit } from './guard';
 import { tidyNote } from './note';
+
+// Durable Object classes must be exported from the Worker's main file.
+export { Klippy } from './agent';
 
 export default {
 	async fetch(request, env): Promise<Response> {
@@ -9,6 +13,16 @@ export default {
 
 		if (url.pathname === '/') {
 			return new Response('Hi, I am Klippy.');
+		}
+
+		// /agents/klippy/<name>: your agents. Only you can reach them, and they spend your model budget.
+		if (url.pathname.startsWith('/agents/')) {
+			const isSocket = request.headers.get('Upgrade')?.toLowerCase() === 'websocket';
+			if (!(await isOwner(request, env, isSocket))) {
+				return Response.json({ error: 'Send Authorization: Bearer <your KLIPPY_TOKEN>' }, { status: 401 });
+			}
+			url.searchParams.delete('token'); // checked: don't pass it on, so the agent never sees or logs it
+			return (await routeAgentRequest(new Request(url, request), env)) ?? new Response('Not found', { status: 404 });
 		}
 
 		if (url.pathname === '/ask' && request.method === 'POST') {

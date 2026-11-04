@@ -9,20 +9,18 @@
 		"start": "wrangler dev",
 		"test": "vitest run",
 		"cf-typegen": "wrangler types",
-		"typecheck": "tsc --noEmit && tsc --noEmit -p test",
-		"loop": "tsx --env-file=.dev.vars scripts/loop.ts"
+		"typecheck": "tsc --noEmit && tsc --noEmit -p test"
 	},
 	"devDependencies": {
-		"@anthropic-ai/sdk": "1.4.0",
 		"@cloudflare/vitest-plugin": "1.5.1",
 		"@types/node": "26.6.6",
-		"tsx": "4.23.15",
 		"typescript": "5.9.3",
 		"vitest": "5.0.5",
 		"wrangler": "4.157.0"
 	},
 	"dependencies": {
 		"@ai-sdk/provider": "4.0.35",
+		"@cloudflare/ai-chat": "0.12.2",
 		"@klippy/db": "workspace:*",
 		"agents": "0.33.0",
 		"ai": "7.0.162",

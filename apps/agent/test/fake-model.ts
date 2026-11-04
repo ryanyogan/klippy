@@ -1,5 +1,5 @@
-import type { LanguageModelV4GenerateResult } from '@ai-sdk/provider';
-import { MockLanguageModelV4 } from 'ai/test';
+import type { LanguageModelV4GenerateResult, LanguageModelV4StreamPart } from '@ai-sdk/provider';
+import { convertArrayToReadableStream, MockLanguageModelV4 } from 'ai/test';
 
 const usage = {
 	inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
@@ -10,6 +10,7 @@ const usage = {
 export type Turn = string | { tool: string; input: object };
 
 // A stand-in for Claude that plays the turns you give it, in order. Give one turn to repeat it forever.
+// It answers both generateText (doGenerate) and streamText (doStream).
 export function fakeModel(...turns: Turn[]) {
 	const results = turns.map((turn, i): LanguageModelV4GenerateResult =>
 		typeof turn === 'string'
@@ -21,5 +22,19 @@ export function fakeModel(...turns: Turn[]) {
 					warnings: [],
 				},
 	);
-	return new MockLanguageModelV4({ doGenerate: results.length === 1 ? results[0] : results });
+	let streamed = 0;
+	return new MockLanguageModelV4({
+		doGenerate: results.length === 1 ? results[0] : results,
+		doStream: async () => {
+			const { content, finishReason } = results[results.length === 1 ? 0 : streamed++];
+			const parts: LanguageModelV4StreamPart[] = content.flatMap((part): LanguageModelV4StreamPart[] =>
+				part.type === 'text'
+					? [{ type: 'text-start', id: 't' }, { type: 'text-delta', id: 't', delta: part.text }, { type: 'text-end', id: 't' }]
+					: part.type === 'tool-call'
+						? [part]
+						: [],
+			);
+			return { stream: convertArrayToReadableStream([...parts, { type: 'finish', finishReason, usage }]) };
+		},
+	});
 }

@@ -1,4 +1,2 @@
 # Copy to .dev.vars for local dev. Make your own with: openssl rand -hex 32
 KLIPPY_TOKEN=change-me
-# Lesson c-02 only: your Anthropic API key, for scripts/loop.ts (it runs in Node, not in the Worker).
-# ANTHROPIC_API_KEY=sk-ant-...

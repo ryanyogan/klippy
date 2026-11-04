@@ -7,6 +7,8 @@
 	"name": "klippy",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-11-03",
+	// The agents package uses Node APIs (AsyncLocalStorage), so it needs Node compatibility.
+	"compatibility_flags": ["nodejs_compat"],
 	"observability": {
 		"enabled": true,
 		// Logs: every console.log and request, searchable in the dashboard for 7 days.
@@ -32,7 +34,11 @@
 			// The migrations live in packages/db, next to the table definitions.
 			"migrations_dir": "../../packages/db/migrations"
 		}
-	]
+	],
+	// Klippy, the agent: one Durable Object per name, each with its own SQLite database.
+	"durable_objects": { "bindings": [{ "name": "Klippy", "class_name": "Klippy" }] },
+	// Tells Cloudflare to create the class, with SQLite storage. Never edit a deployed tag: add a new one.
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Klippy"] }]
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
