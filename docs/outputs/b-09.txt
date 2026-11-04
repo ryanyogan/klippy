@@ -1,0 +1,159 @@
+# b-09 Checkpoint: Klippy with tools. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, agents 0.33.0, ai 7.0.162, zod 4.6.7, remix 3.1.0.
+# MODEL: no Anthropic key on the gateway, so the Workers AI fallback (@cf/zai-org/glm-4.7-flash) answered.
+#
+# NOT RECORDED HERE: the live deploy. As at a-05, the owner (or a lane allowed to deploy) runs, in apps/agent:
+#   pnpm wrangler secret put KLIPPY_TOKEN        # once, if a-05's deploy didn't already set it
+#   pnpm wrangler deploy
+#   curl -s "https://klippy.<subdomain>.workers.dev/klippy/check?nonce=checkpoint-b09"   # expect "tag":"b-09"
+# The remote D1 schema IS applied (transcript below), so the deployed Worker can save notes on its first request.
+#
+# Notes for the writer:
+# - Joins the parts: weather, time, notes (/ask and /note), links, the check. TAG in src/check.ts is now "b-09"
+#   (bits' grader reads it). Steps for the learner: pnpm test, the remote migration, pnpm deploy, the curl tour.
+# - One fix found while recording the tour: "Should I take an umbrella in Dublin today?" made the model call getTime,
+#   then getWeather in a SECOND step, and isStepCount(2) stopped it there with an empty answer ("answer":"").
+#   So: isStepCount(3) (two rounds of tools, then the answer), and an honest fallback when the cap stops it mid-way:
+#   "Sorry, I ran out of steps before I could answer. Try asking one thing at a time." (src/ask.ts, a test in
+#   tools.spec.ts). C7 teaches caps properly; here it's one line and why.
+# - In the tour below the model answered "Read https://example.com" from memory without calling readLink (it did call
+#   it in b-08's recording). The fallback model is free but less reliable at tool use than Claude; say so once.
+# - The notes list shows earlier recordings' notes (ids 1-8, one duplicate from an aborted take): it's the same local DB.
+# - Security posture unchanged and complete for course B: /ask and /note need the token, share the rate limit and the
+#   2,000-character cap; notes are 1..1,000 characters; /klippy/check sends no tools; readLink is exact-link-only with no
+#   redirects, and notes tools drop after a page read (b-08).
+# - A learner's remote migration targets their own database (the id from `wrangler d1 create klippy-db` in b-05).
+
+## pnpm wrangler d1 migrations apply klippy-db --remote (in apps/agent; the owner's klippy-db)
+
+ ⛅️ wrangler 4.157.0
+────────────────────
+Resource location: remote 
+
+Migrations to be applied:
+┌────────────────┐
+│ name           │
+├────────────────┤
+│ 0001_notes.sql │
+└────────────────┘
+? About to apply 1 migration(s)
+Your database may not be available to serve requests during the migration, continue?
+🤖 Using fallback value in non-interactive context: yes
+🌀 Executing on remote database klippy-db (e51fc5ce-ea1d-48b0-afd7-e0af5cd1672f):
+🌀 To execute on your local development database, remove the --remote flag from your wrangler command.
+🚣 Executed 2 commands in 0.97ms
+┌────────────────┬────────┐
+│ name           │ status │
+├────────────────┼────────┤
+│ 0001_notes.sql │ ✅     │
+└────────────────┴────────┘
+# (Run in a terminal, wrangler asks "continue?" and waits for y.)
+
+## Terminal 1: pnpm dev (trimmed as in b-05; long log lines cut at 400 characters here)
+
+> klippy@ dev /home/ryan/code/klippy
+> pnpm --filter agent run dev --port 8801
+
+
+> agent@0.0.0 dev /home/ryan/code/klippy/apps/agent
+> wrangler dev --port 8801
+
+
+ ⛅️ wrangler 4.157.0
+────────────────────
+Using secrets defined in .dev.vars
+Your Worker has access to the following bindings:
+Binding                                 Resource                  Mode
+env.DB (klippy-db)                      D1 Database               local
+env.AI                                  AI                        remote
+env.LIMITER (10 requests/60s)           Rate Limit                local
+env.KLIPPY_TOKEN ("(hidden)")           Environment Variable      local
+
+⎔ Establishing remote connection...
+⎔ Starting local server...
+[wrangler:info] Ready on http://localhost:8801
+{"step":0,"finish":"tool-calls","toolCalls":[{"tool":"getWeather","input":{"place":"Dublin"}}],"toolResults":[{"tool":"getWeather","output":{"place":"Dublin, Ireland","temperatureC":10.9,"windKmh":18,"conditions":"clear sky"}}],"toolErrors":[],"text":"I'll check the weather in Dublin for you.","tokens":934}
+{"step":1,"finish":"stop","toolCalls":[],"toolResults":[],"toolErrors":[],"text":"The weather in Dublin is currently clear with no precipitation, so you don't need an umbrella today.","tokens":995}
+[wrangler:info] POST /ask 200 OK (7409ms)
+{"step":0,"finish":"tool-calls","toolCalls":[{"tool":"getTime","input":{"timeZone":"Australia/Sydney"}}],"toolResults":[{"tool":"getTime","output":{"timeZone":"Australia/Sydney","now":"Wednesday, 4 November 2026 at 11:27"}}],"toolErrors":[],"text":"I'll check the current time for Sydney.","tokens":933}
+{"step":1,"finish":"stop","toolCalls":[],"toolResults":[],"toolErrors":[],"text":"The current time in Sydney is Wednesday, 4 November 2026 at 11:27.","tokens":993}
+[wrangler:info] POST /ask 200 OK (4779ms)
+[wrangler:info] POST /note 200 OK (3601ms)
+{"step":0,"finish":"tool-calls","toolCalls":[{"tool":"listNotes","input":{}}],"toolResults":[{"tool":"listNotes","output":"{\"notes\":[{\"id\":8,\"body\":\"Pick up the parcel from the post office before Saturday noon, ref 4471\",\"savedAt\":\"2026-11-04T00:27:52.948Z\"},{\"id\":7,\"body\":\"Pick up the parcel from the post office before Sat noon, ref 4471\",\"savedAt\":\"2026-11-04T00:25:01.961Z\"
+{"step":1,"finish":"stop","toolCalls":[],"toolResults":[],"toolErrors":[],"text":"I recently noted down several things, including:\n\n- Picking up a parcel from the post office before Saturday noon (reference 4471)\n- Booking a dentist appointment for next Tuesday morning at the Elm Street office\n- Calling Sam about the bike on Friday (after 5pm)\n- Shopping items: oat milk, coffee beans, and bin
+[wrangler:info] POST /ask 200 OK (7087ms)
+{"step":0,"finish":"stop","toolCalls":[],"toolResults":[],"toolErrors":[],"text":"The webpage at example.com primarily contains the \"Example Domain\" text which is a placeholder demonstration page used to show how basic web hosting works.","tokens":948}
+[wrangler:info] POST /ask 200 OK (2897ms)
+{"step":0,"finish":"stop","toolCalls":[],"toolResults":[],"toolErrors":[],"text":"Hello, bits!","tokens":37}
+[wrangler:info] GET /klippy/check 200 OK (12744ms)
+
+## Terminal 2
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"Should I take an umbrella in Dublin today?"}'
+{"answer":"The weather in Dublin is currently clear with no precipitation, so you don't need an umbrella today.","model":"@cf/zai-org/glm-4.7-flash"}
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"What time is it in Sydney?"}'
+{"answer":"The current time in Sydney is Wednesday, 4 November 2026 at 11:27.","model":"@cf/zai-org/glm-4.7-flash"}
+$ curl -s -X POST http://localhost:8801/note -H "Authorization: Bearer demo-token-for-the-recording" -d '{"text":"pick up the parcel from the post office before sat noon, ref 4471"}'
+{"saved":{"id":8,"body":"Pick up the parcel from the post office before Saturday noon, ref 4471"}}
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"What have I noted down lately?"}'
+{"answer":"I recently noted down several things, including:\n\n- Picking up a parcel from the post office before Saturday noon (reference 4471)\n- Booking a dentist appointment for next Tuesday morning at the Elm Street office\n- Calling Sam about the bike on Friday (after 5pm)\n- Shopping items: oat milk, coffee beans, and bin bags\n\nYou have a total of 8 notes in your history.","model":"@cf/zai-org/glm-4.7-flash"}
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"Read https://example.com and tell me what it says, in one sentence."}'
+{"answer":"The webpage at example.com primarily contains the \"Example Domain\" text which is a placeholder demonstration page used to show how basic web hosting works.","model":"@cf/zai-org/glm-4.7-flash"}
+$ curl -s 'http://localhost:8801/klippy/check?nonce=checkpoint-b09'
+{"nonce":"checkpoint-b09","tag":"b-09","probe":{"answer":"Hello, bits!","model":"@cf/zai-org/glm-4.7-flash"}}
+## In apps/agent
+$ pnpm wrangler deploy --dry-run
+
+ ⛅️ wrangler 4.157.0
+────────────────────
+Total Upload: 1535.58 KiB / gzip: 273.53 KiB
+Your Worker has access to the following bindings:
+Binding                            Resource         
+env.DB (klippy-db)                 D1 Database      
+env.AI                             AI               
+env.LIMITER (10 requests/60s)      Rate Limit       
+
+--dry-run: exiting now.
+
+$ pnpm typecheck
+
+> klippy@ typecheck /home/ryan/code/klippy
+> pnpm --recursive run typecheck
+
+Scope: 3 of 4 workspace projects
+packages/data-table-d1 typecheck$ tsc --noEmit
+packages/data-table-d1 typecheck: Done
+apps/agent typecheck$ tsc --noEmit && tsc --noEmit -p test
+apps/agent typecheck: Done
+
+$ pnpm test
+
+> klippy@ test /home/ryan/code/klippy
+> pnpm --recursive run test
+
+Scope: 3 of 4 workspace projects
+packages/data-table-d1 test$ NODE_ENV=test remix test
+packages/data-table-d1 test: Found 1 test file(s) (1 server, 0 browser, 0 e2e)
+packages/data-table-d1 test: Running server tests:
+packages/data-table-d1 test: ▶ D1 data-table driver (586.64ms) [server]
+packages/data-table-d1 test: ℹ files 1
+packages/data-table-d1 test: ℹ suites 1
+packages/data-table-d1 test: ℹ tests 24
+packages/data-table-d1 test: ℹ pass 24
+packages/data-table-d1 test: ℹ fail 0
+packages/data-table-d1 test: ℹ duration_ms 1315.14316
+packages/data-table-d1 test: Done
+apps/agent test$ vitest run
+apps/agent test:  RUN  v5.0.5 /home/ryan/code/klippy/apps/agent
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test:  Test Files  9 passed (9)
+apps/agent test:       Tests  35 passed (35)
+apps/agent test:    Start at  18:28:45
+apps/agent test:    Duration  3.20s (transform 79%, import 16%, tests 3%, worker 2%)
+apps/agent test: Done

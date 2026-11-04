@@ -42,4 +42,11 @@ describe('tools', () => {
 		expect(toolMessage).toContain('Asia/Tokyo');
 		expect(toolMessage).toMatch(/\d{1,2}:\d{2}/);
 	});
+
+	it('stops after three steps, and says so if it ran out before answering', async () => {
+		fake.model = fakeModel({ tool: 'getTime', input: { timeZone: 'Europe/Dublin' } });
+		const response = await ask('Umbrella in Dublin?');
+		expect(fake.model.doGenerateCalls).toHaveLength(3);
+		expect(await response.json()).toEqual({ answer: 'Sorry, I ran out of steps before I could answer. Try asking one thing at a time.' });
+	});
 });

@@ -28,8 +28,8 @@ export async function ask(env: Env, question: string, tools: ToolSet = allTools(
 			const readAPage = steps.some((step) => step.toolCalls.some((call) => call.toolName === 'readLink'));
 			return readAPage ? { activeTools: Object.keys(tools).filter((name) => name !== 'saveNote' && name !== 'listNotes') } : {};
 		},
-		// Step 1: Claude may call a tool. Step 2: it answers with the result. Then stop.
-		stopWhen: isStepCount(2),
+		// Up to two rounds of tools (say the time, then the weather), then the answer. Then stop, whatever happens.
+		stopWhen: isStepCount(3),
 		// Log one line per step, so you can watch the round trip in the `pnpm dev` terminal.
 		onStepEnd: (step) => {
 			console.log(
@@ -47,7 +47,9 @@ export async function ask(env: Env, question: string, tools: ToolSet = allTools(
 		},
 	});
 	// Which model answered: Claude, or the fallback.
-	return { answer: text, model: providerMetadata?.cloudflare?.model };
+	// Stopped mid-way (the last step was still a tool call)? Then there's no text: say so instead of sending "".
+	const answer = text || "Sorry, I ran out of steps before I could answer. Try asking one thing at a time.";
+	return { answer, model: providerMetadata?.cloudflare?.model };
 }
 
 // A web page is thousands of characters: log the first 300, not the whole page.
