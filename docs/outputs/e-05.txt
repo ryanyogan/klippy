@@ -1,0 +1,48 @@
+# e-05 Keywords too: hybrid. Recorded 2026-11-03 on Linux, Node v24.22.2, agents 0.33.0, wrangler 4.157.0.
+#
+# Notes for the writer:
+# - What changed:
+#     packages/db/migrations/0004_chunks_fts.sql   FTS5 virtual table chunks_fts (external content = chunks, porter
+#                                                  stemming), three triggers (insert/delete/update), 'rebuild' for the
+#                                                  chunks saved before it
+#     apps/agent/src/retrieval/rrf.ts              rrf(lists, k = 60): 1 / (k + rank) summed per id (Cormack et al.
+#                                                  2009 is where k = 60 comes from)
+#     apps/agent/src/retrieval/vectors.ts          vectorSearch(): embed the question, VECTORIZE.query topK 20 with
+#                                                  filter { owner }
+#     apps/agent/src/retrieval/search.ts           keywordSearch() (each word quoted and OR-ed: no FTS syntax from the
+#                                                  user; bm25 rank; owner filter), hybridSearch() (both in parallel,
+#                                                  rrf, top 10), hydrate() (chunk + source rows from D1 by id, in rank
+#                                                  order; drops ids that are gone or belong to another owner)
+#     apps/agent/src/agent.ts                      onRequest: GET /agents/klippy/<name>/search?q= (token checked by the
+#                                                  Worker; 2,000 chars; rate-limited per Klippy: it costs one embedding)
+#     apps/agent/test/search.spec.ts               5 tests: rrf (both lists beat one; one list keeps order), keyword
+#                                                  search with stemming and the owner wall and a syntax-injection
+#                                                  attempt, the delete trigger + hydrate, the route merging both lists
+#     apps/agent/test/approval.spec.ts             mocks the vectors module: an approved note is ingested in the
+#                                                  background, and the local AI binding refuses to run (as it should:
+#                                                  "Binding AI needs to be run remotely"), which only made noise
+# - Teach why hybrid wins: embeddings miss exact tokens (names, error codes, "apps/web"); keywords miss paraphrases.
+#   Anthropic's Contextual Retrieval post reports embeddings + BM25 beating embeddings alone. RRF needs no tuning and no
+#   comparable scores.
+# - The first query below finds the Pip note by meaning and by words ("Pip"); "carrots" alone also ranks it first.
+#   The other hits are filler: this Klippy has only two sources.
+
+## Verification (real, 2026-11-03)
+
+$ pnpm typecheck        -> ok
+$ pnpm exec vitest run  -> 18 files, 83 tests passed
+
+$ pnpm exec wrangler d1 migrations apply DB --local     -> 0004_chunks_fts.sql ✅
+$ pnpm exec wrangler dev --port 8801      (real Vectorize index, real Workers AI embeddings, local D1)
+$ curl -s -G -H "Authorization: Bearer $T" --data-urlencode "q=What does Pip like to eat?" http://localhost:8801/agents/klippy/me/search | jq -c '.hits[:3][] | {chunkId, title, starts: .text[0:60]}'
+{"chunkId":11,"title":"pip.md","starts":"# Pip\n\nPip is my dog. She likes carrots and hates baths."}
+{"chunkId":15,"title":"ui-brief.md","starts":"## Screens\n\n| Path | What it shows | Signed out |\n|---|---|-"}
+{"chunkId":13,"title":"ui-brief.md","starts":"## Goal\n\nOne person, signed in with GitHub, chats with their"}
+$ ... q=which screens need sign-in
+{"chunkId":15,"title":"ui-brief.md","starts":"## Screens\n\n| Path | What it shows | Signed out |\n|---|---|-"}
+{"chunkId":19,"title":"ui-brief.md","starts":"## Accessibility bar\n\n- Everything works with the keyboard; "}
+{"chunkId":16,"title":"ui-brief.md","starts":"## States to design\n\n- Chat: empty (\"Say hi to Klippy\"), str"}
+$ ... q=carrots
+{"chunkId":11,"title":"pip.md","starts":"# Pip\n\nPip is my dog. She likes carrots and hates baths."}
+{"chunkId":21,"title":"ui-brief.md","starts":"## References (gathered with Firecrawl, 2026-11-03; pages ar"}
+{"chunkId":15,"title":"ui-brief.md","starts":"## Screens\n\n| Path | What it shows | Signed out |\n|---|---|-"}

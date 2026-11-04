@@ -21,3 +21,10 @@ export async function upsertChunks(env: Env, rows: ChunkRow[]) {
 	);
 	return rows.length;
 }
+
+// The chunk ids whose meaning is closest to the question, from this owner's vectors only.
+export async function vectorSearch(env: Env, owner: string, question: string, topK = 20): Promise<number[]> {
+	const [vector] = await embed(env, [question]);
+	const { matches } = await env.VECTORIZE.query(vector, { topK, filter: { owner } });
+	return matches.map((match) => Number(match.id.replace('chunk-', '')));
+}

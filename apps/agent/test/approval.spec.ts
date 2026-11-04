@@ -4,6 +4,8 @@ import { fakeModel } from './fake-model';
 
 const fake = vi.hoisted(() => ({ model: undefined as ReturnType<typeof fakeModel> | undefined }));
 vi.mock('../src/model', () => ({ model: () => fake.model }));
+// An approved note is also ingested in the background: no real embeddings in tests.
+vi.mock('../src/retrieval/vectors', () => ({ upsertChunks: async () => 0 }));
 
 beforeAll(() => applyD1Migrations(env.DB, env.TEST_MIGRATIONS));
 

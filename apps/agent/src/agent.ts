@@ -12,6 +12,7 @@ import { getWeather } from './tools/weather';
 import { saveLinkTool } from './tools/sources';
 import { queueSource } from './ingest/sources';
 import { fileToMarkdown } from './ingest/file';
+import { hybridSearch } from './retrieval/search';
 
 // One Klippy per name. Each instance is its own Durable Object, with its own conversation in its own SQLite,
 // so Alice's chat never mixes with Bob's (a global array in the Worker would hold everyone's).
@@ -87,7 +88,16 @@ export class Klippy extends AIChatAgent {
 	// POST /agents/klippy/<name>/file: send Klippy a file to answer from (the Worker already checked your token).
 	// Plain text, Markdown, HTML or PDF, up to 1 MB. It's converted to Markdown now and ingested in the background.
 	async onRequest(request: Request) {
-		if (request.method !== 'POST' || new URL(request.url).pathname.split('/').pop() !== 'file') {
+		const url = new URL(request.url);
+		const action = url.pathname.split('/').pop();
+		// GET /agents/klippy/<name>/search?q=...: what hybrid search finds for a question (to try it, and for e-08).
+		if (request.method === 'GET' && action === 'search') {
+			const q = (url.searchParams.get('q') ?? '').trim();
+			if (!q || q.length > MAX_QUESTION) return Response.json({ error: `Send ?q=, up to ${MAX_QUESTION} characters` }, { status: 400 });
+			if (!(await underLimit(this.env, `search:${this.name}`))) return Response.json({ error: 'Too many requests. Wait a minute.' }, { status: 429 });
+			return Response.json({ hits: await hybridSearch(this.env, this.name, q) });
+		}
+		if (request.method !== 'POST' || action !== 'file') {
 			return new Response('Not found', { status: 404 });
 		}
 		if (!(await underLimit(this.env, `file:${this.name}`))) return Response.json({ error: 'Too many requests. Wait a minute.' }, { status: 429 });
