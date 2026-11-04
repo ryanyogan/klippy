@@ -1,0 +1,75 @@
+# c-02 Write the loop by hand, once. Recorded 2026-11-03 on Linux, Node v24.22.2, @anthropic-ai/sdk 1.4.0, tsx 4.23.15,
+# wrangler 4.157.0 (versions checked with `npm view` on 2026-11-03).
+#
+# PENDING: needs ANTHROPIC_API_KEY in apps/agent/.dev.vars. The live run (Claude itself, straight through the Messages API,
+# no gateway) is NOT recorded: no Anthropic key was available to this lane. To record it, in apps/agent:
+#   echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .dev.vars
+#   pnpm loop "What time is it right now?" 2>&1 | tee -a ../../docs/outputs/c-02.txt
+# Expect two lines like "turn 1: stop_reason = tool_use", "turn 2: stop_reason = end_turn", then Claude's answer.
+# (Never run it without ANTHROPIC_API_KEY set: the SDK then also looks for an `ant auth login` profile on disk.)
+#
+# Notes for the writer:
+# - What changed: `pnpm add -D @anthropic-ai/sdk tsx` (dev dependencies: the script runs in Node, never in the Worker),
+#   scripts/loop.ts (30 lines), a `loop` script in apps/agent/package.json (`tsx --env-file=.dev.vars scripts/loop.ts`),
+#   "type": "module" in apps/agent/package.json (tsx refused the top-level await without it, see the first run below),
+#   scripts/ added to tsconfig "include", test/loop.spec.ts (fake client, two tests), and a commented ANTHROPIC_API_KEY
+#   line in .dev.vars.example.
+# - The model is claude-haiku-5-5 (the Messages API id; the gateway catalog id Klippy uses is anthropic/claude-haiku-5.5).
+#   Checked against the claude-api skill's model table (cached 2026-10-06): $0.10 / $0.50 per 1M tokens in/out.
+# - The concepts the lesson maps: stop_reason "tool_use" = finishReason "tool-calls"; the assistant turn goes back
+#   whole (content blocks, not just text); every tool_result goes in ONE user message, matched by tool_use_id;
+#   maxTurns = stopWhen: isStepCount(...). Other stop reasons end the loop: end_turn, max_tokens, refusal.
+# - The lesson deletes the script at the end. The tag keeps it so the diff is readable; c-03 removes scripts/loop.ts,
+#   its test, and the two dev dependencies.
+
+## pnpm loop "What time is it?" (first try, before "type": "module")
+
+> agent@0.0.0 loop /home/ryan/code/klippy/apps/agent
+> tsx scripts/loop.ts 'What time is it?'
+
+Error: Transform failed with 1 error:
+/home/ryan/code/klippy/apps/agent/scripts/loop.ts:29:13: ERROR: Top-level await is currently not supported with the "cjs" output format
+(stack trace trimmed)
+
+## With "type": "module" and a deliberately wrong key (ANTHROPIC_API_KEY=sk-ant-not-a-real-key): the call reaches the API
+
+AuthenticationError: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_011CggwyyrAQZp9tYWrh1fWy"}
+(stack trace trimmed: a 401 means the loop, the SDK and the request are wired up; only the key is wrong)
+
+## pnpm exec vitest run test/loop.spec.ts --reporter=verbose (fake client, no network)
+
+
+ RUN  v5.0.5 /home/ryan/code/klippy/apps/agent
+
+stdout | test/loop.spec.ts > the hand-written loop > runs the tool Claude asks for, sends the result back, and stops at end_turn
+turn 1: stop_reason = tool_use
+
+stdout | test/loop.spec.ts > the hand-written loop > runs the tool Claude asks for, sends the result back, and stops at end_turn
+turn 2: stop_reason = end_turn
+
+stdout | test/loop.spec.ts > the hand-written loop > stops after maxTurns, however many tools Claude asks for
+turn 1: stop_reason = tool_use
+
+stdout | test/loop.spec.ts > the hand-written loop > stops after maxTurns, however many tools Claude asks for
+turn 2: stop_reason = tool_use
+
+stdout | test/loop.spec.ts > the hand-written loop > stops after maxTurns, however many tools Claude asks for
+turn 3: stop_reason = tool_use
+
+ ✓ test/loop.spec.ts > the hand-written loop > runs the tool Claude asks for, sends the result back, and stops at end_turn 2ms
+ ✓ test/loop.spec.ts > the hand-written loop > stops after maxTurns, however many tools Claude asks for 1ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  18:33:44
+   Duration  1.76s (transform 72%, import 26%, worker 1%)
+
+
+## pnpm typecheck && pnpm test (whole repo)
+
+typecheck errors: 0
+apps/agent test:  Test Files  10 passed (10)
+apps/agent test:       Tests  37 passed (37)
+
+## pnpm exec wrangler deploy --dry-run (apps/agent): the SDK is a dev dependency, so the Worker bundle is the same size as at b-09
+Total Upload: 1535.58 KiB / gzip: 273.52 KiB
