@@ -1,0 +1,37 @@
+# f-06 Tests and CI. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, cloudflare/wrangler-action v4.1.3
+# (latest release, checked with `gh api repos/cloudflare/wrangler-action/releases/latest` the same day).
+#
+# Notes for the writer:
+# - What changed: .github/workflows/ci.yml gets a second job, deploy:
+#     needs: check                       never deploys code that failed typecheck, tests or a dry-run build
+#     if: push to refs/heads/main        tags and pull requests never deploy
+#     concurrency: group deploy, cancel-in-progress false   one at a time, never cut off mid-migration
+#     env: CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID from repository secrets
+#     steps, each gated on `if: env.CLOUDFLARE_API_TOKEN != ''` (secrets can't be read in an `if` directly; the job-level
+#     env can), with a first step that prints a notice when the secret is missing. So the job is green and does nothing
+#     until the owner adds the secrets: forks and fresh clones stay green too.
+#       1. d1 migrations apply DB --remote   (apps/agent; the one D1 both Workers share) FIRST: migrations only add, so the
+#          code that's live keeps working while the new code rolls out. Say "keep migrations additive" in the lesson.
+#       2. deploy apps/agent                 before the web app, which calls it through the service binding
+#       3. deploy apps/web                   its build.command bundles the islands first
+# - wrangler-action detail (read in its v4.1.3 source, src/wranglerAction.ts): it runs `<pm> exec wrangler --version` in
+#   workingDirectory, and when that equals wranglerVersion it uses it instead of installing. We pass "4.157.0" (the
+#   lockfile's) and packageManager pnpm, so CI deploys with exactly the wrangler the tests used and never edits the
+#   lockfile. Leave wranglerVersion out and it uses whatever is installed; a different version makes it install one.
+# - Not done by CI on purpose: Worker secrets (KLIPPY_TOKEN, GitHub OAuth, SESSION_SECRET). Put them once with
+#   `wrangler secret put` (wrangler-action's `secrets:` input can push them from GitHub secrets, but then they live in two
+#   places). The API token needs Workers Scripts Edit and D1 Edit on the account (plus Workers Routes / zone access
+#   once a custom domain lands in f-07); make it an account-owned token, not your user's global key.
+# - NOT RUN: a real deploy. The repo has no CLOUDFLARE_* secrets (`gh secret list` is empty), and this lane doesn't
+#   deploy (owner checklist). The push of this tag shows the gate working: on main, deploy runs and skips every step
+#   with the notice; on the tag, deploy doesn't run at all. That CI result is recorded in f-07's output.
+# - actionlint isn't installed here (and was denied once before), so the workflow was checked by parsing it (yaml 2.9.1):
+#   jobs [check, deploy], 8 deploy steps. CI itself is the real check.
+# - The `check` job is unchanged: frozen install, typecheck, test (agent tests in the Workers runtime through
+#   @cloudflare/vitest-plugin 1.5.1 + vitest 5.0.5, models stubbed, no network), dry-run of each Worker.
+
+## Verification (real, 2026-11-03)
+
+$ node -e "...yaml.parse(ci.yml)..."   -> [ 'check', 'deploy' ] 8
+$ gh secret list                       -> (none)
+$ pnpm typecheck && pnpm test          -> ok; agent 111, web 3, data-table-d1 24 (unchanged from f-05)
