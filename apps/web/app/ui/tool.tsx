@@ -27,9 +27,20 @@ export function Tool(handle: Handle<{ part: ToolPart; children?: RemixNode }>) {
 					<span class="tool-state">{labels[part.state]}</span>
 				</summary>
 				<div class="tool-body">
-					<pre aria-label="Input">{JSON.stringify(part.input ?? {}, null, 2)}</pre>
-					{part.state === 'output-available' && <pre aria-label="Result">{JSON.stringify(part.output, null, 2)}</pre>}
-					{part.state === 'output-error' && <pre aria-label="Error">{part.errorText}</pre>}
+					<p class="muted">Input</p>
+					<pre>{JSON.stringify(part.input ?? {}, null, 2)}</pre>
+					{part.state === 'output-available' && (
+						<>
+							<p class="muted">Result</p>
+							<pre>{JSON.stringify(part.output, null, 2)}</pre>
+						</>
+					)}
+					{part.state === 'output-error' && (
+						<>
+							<p class="muted">Error</p>
+							<pre>{part.errorText}</pre>
+						</>
+					)}
 				</div>
 				{children && <div class="tool-actions">{children}</div>}
 			</details>

@@ -4,7 +4,7 @@ import { isToolUIPart, type UIMessage } from 'ai';
 import { Sources } from './sources.tsx';
 import { Tool, type ToolPart } from './tool.tsx';
 
-// One turn: yours on the right, Klippy's on the left. Text, a "thinking" line, tool cards, then sources.
+// One turn: yours on the right, Klippy's on the left. Text and tool cards in order, a "thinking" line, then sources.
 // `actions` lets the chat add buttons to a tool card (Approve / Deny); the server-rendered page passes none.
 export function Message(handle: Handle<{ message: UIMessage; actions?: (part: ToolPart) => RemixNode }>) {
 	return () => {
@@ -13,18 +13,24 @@ export function Message(handle: Handle<{ message: UIMessage; actions?: (part: To
 		if ((message.metadata as { nudge?: boolean } | undefined)?.nudge) {
 			return <li class="message message-thinking">A reminder is due.</li>;
 		}
-		const text = message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
+		const text = message.parts.some((part) => part.type === 'text' && part.text);
 		const thinking = !text && message.parts.some((part) => part.type === 'reasoning');
 		return (
 			<li class="message" data-from={message.role}>
 				<span class="visually-hidden">{message.role === 'user' ? 'You:' : 'Klippy:'}</span>
-				{message.parts.filter(isToolUIPart).map((part) => (
-					<Tool key={part.toolCallId} part={part}>
-						{actions?.(part)}
-					</Tool>
-				))}
+				{/* In the order they happened: text the model wrote before a tool ran stays above that tool's card. */}
+				{message.parts.map((part, index) =>
+					isToolUIPart(part) ? (
+						<Tool key={part.toolCallId} part={part}>
+							{actions?.(part)}
+						</Tool>
+					) : part.type === 'text' && part.text ? (
+						<p key={index} class="message-content">
+							{part.text}
+						</p>
+					) : null,
+				)}
 				{thinking && <p class="message-thinking">Thinking…</p>}
-				{text && <p class="message-content">{text}</p>}
 				<Sources urls={sourcesOf(message)} />
 			</li>
 		);

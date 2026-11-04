@@ -5,7 +5,9 @@ import { run } from 'remix/component';
 const app = run({
 	async loadModule(url, name) {
 		const module = await import(url);
-		return module[name];
+		const Component = module[name];
+		if (typeof Component !== 'function') throw new Error(`Unknown component: ${url}#${name}`);
+		return Component;
 	},
 });
 app.addEventListener('error', (event) => console.error('Island error:', event.error));
