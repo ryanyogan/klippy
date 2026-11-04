@@ -1,0 +1,74 @@
+# d-02 Skills: teach it your stack. Recorded 2026-11-03 on Linux, Node v24.22.2, Claude Code 2.1.317,
+# skills CLI 1.7.6 (npm latest that day, checked with `npm view skills version`).
+#
+# Notes for the writer:
+# - What changed: skills-lock.json (four skills, with source and content hash) and .gitignore (the installed skill
+#   folders aren't committed: they're third-party files, MIT / Apache-2.0, installed per machine from the lock).
+# - The four skills, all project scope, copied into .claude/skills/ for Claude Code:
+#     remix            remix-run/remix (.agents/skills/remix): read installed docs first, routes/router/controllers
+#     cloudflare       cloudflare/skills: product choice, then the right docs
+#     agents-sdk       cloudflare/skills: the agents package (AIChatAgent, AgentClient)
+#     frontend-design  anthropics/skills: a deliberate visual direction, not template defaults
+#   The plan names "the cloudflare skill"; we add agents-sdk because D9 builds on agents/client.
+# - A fresh clone restores them with `npx skills@1.7.6 experimental_install` (the command name says experimental:
+#   say so in the lesson, and show the four `add` lines as the stable path).
+# - Honest caveat: this machine also has user-level skills (durable-objects, wrangler, tdd…), so Claude Code's list
+#   below is longer than the four we installed. A learner's list will differ.
+# - How this was made: the lane R agent ran the commands below itself (not a recorded fresh Claude Code run of the
+#   prompt). The two `claude -p` checks are real runs.
+
+## The commands (the learner runs these; the agent can too)
+npx skills@1.7.6 add remix-run/remix -s remix -a claude-code -y
+npx skills@1.7.6 add cloudflare/skills -s cloudflare -s agents-sdk -a claude-code -y
+npx skills@1.7.6 add anthropics/skills -s frontend-design -a claude-code -y
+
+## The prompt (fresh session: /clear, then paste)
+
+Goal: explain the four skills just installed in .claude/skills, so I know when each one changes what you do.
+Read each SKILL.md's frontmatter and first section only.
+Constraints:
+- Don't change any file. This is a read-only step.
+- For each skill: its name, when it loads (from its description), and one thing it makes you do differently.
+Done when you've covered remix, cloudflare, agents-sdk and frontend-design, and named the one you'd load first
+to add a Remix page.
+Report as a four-row table, then that one line.
+
+# Why: a read-only step teaches the learner that a skill's *description* decides when it loads, and its body
+# changes behaviour (e.g. remix: installed docs before memory). One table keeps the reply short (context budget).
+
+## What to expect
+- No file changes. A table; remix named as the first skill for a Remix page.
+- The agent may list skills from your user folder too. That's fine; ask which ones came from skills-lock.json.
+
+## Review checklist
+- [ ] skills-lock.json lists exactly the four skills, from remix-run/remix, cloudflare/skills, anthropics/skills.
+- [ ] .claude/skills/ is gitignored (third-party files aren't committed; the lock is).
+- [ ] Reject: skills from a repo you don't recognise, or a skill whose description says it loads "always".
+
+## Steer prompts
+- "Your table describes the cloudflare skill from memory. Read .claude/skills/cloudflare/SKILL.md and quote its
+  description line instead."
+- "You edited AGENTS.md. This step is read-only: revert it with git checkout AGENTS.md."
+
+## Verification (real, 2026-11-03)
+
+$ ls .claude/skills
+agents-sdk  cloudflare  frontend-design  remix
+
+$ git check-ignore .claude/skills/remix/SKILL.md
+.claude/skills/remix/SKILL.md
+
+$ claude -p "Use the remix skill. In three short lines: what does it tell you to read before using an unfamiliar Remix API, in what order? Don't read any repo files." --max-turns 3
+1. Start with the app itself: `AGENTS.md`, `package.json`, `tsconfig.json`, and the code that owns the behavior you're changing.
+2. Search `node_modules/remix/INDEX.md` by task or keyword. To find a specific function, type or attribute, search `node_modules/remix/guides` and `node_modules/remix/src`.
+3. Follow the index to the relevant guide, then read the package README for exact imports, options and examples. If there's no guide, use the API README and the app's existing patterns.
+
+$ claude -p "Without reading files: list the project skills you have available … which one you'd load first for adding a Remix page." --max-turns 1
+(excerpt) - **remix**: building or changing Remix 3 routes, pages, middleware, data or UI with `remix/*` imports.
+          - **agents-sdk**: working on `Klippy extends AIChatAgent`, tools, scheduling or approvals in the `agents` package.
+          - **cloudflare**: choosing which Cloudflare product fits a new need before building it.
+          - **frontend-design**: choosing a deliberate visual direction for new UI so it doesn't look templated.
+          (…plus user-level skills on this machine: durable-objects, workers-best-practices, wrangler, cf-cli, …)
+          **For adding a Remix page, I'd load `remix` first.**
+# It also said it couldn't tell which skills came from this repo without reading skills-lock.json: true, and a good
+# reason to keep the lock file.

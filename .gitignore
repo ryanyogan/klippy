@@ -6,3 +6,7 @@ dist/
 .env*
 *.log
 .DS_Store
+
+# Skills are installed per machine from skills-lock.json (npx skills experimental_install); not committed.
+.claude/skills/
+.agents/skills/
