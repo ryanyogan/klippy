@@ -3,6 +3,7 @@ import { convertToModelMessages, isStepCount, streamText, type UIMessage } from 
 import { MAX_QUESTION } from './ask';
 import { underLimit } from './guard';
 import { model } from './model';
+import { facts, memoryTools } from './tools/memory';
 import { getTime } from './tools/time';
 import { getWeather } from './tools/weather';
 
@@ -21,13 +22,19 @@ export class Klippy extends AIChatAgent {
 		if (!(await underLimit(this.env, `chat:${this.name}`))) {
 			return new Response('Too many messages. Wait a minute.');
 		}
+		// Read the facts fresh every turn, so the model sees what it remembered a moment ago.
+		const known = facts(this).map(({ id, fact }) => `${id}: ${fact}`);
 		const result = streamText({
 			model: model(this.env),
-			system: 'You are Klippy, a friendly personal assistant. Answer in one or two sentences.',
+			system: [
+				'You are Klippy, a friendly personal assistant. Answer in one or two sentences.',
+				'What you know about the user (id: fact):',
+				known.join('\n') || '(nothing yet)',
+			].join('\n'),
 			// The conversation so far, minus any message that was too long (it stays in the chat, but never reaches the model).
 			messages: await convertToModelMessages(this.messages.filter((m) => m.role !== 'user' || textOf(m).length <= MAX_QUESTION)),
 			maxOutputTokens: 300,
-			tools: { getWeather, getTime },
+			tools: { getWeather, getTime, ...memoryTools(this) },
 			stopWhen: isStepCount(3),
 			abortSignal: options?.abortSignal, // the client cancelled: stop paying for tokens
 		});

@@ -1,3 +1,4 @@
+import { MessageType } from '@cloudflare/ai-chat/types';
 import { WebSocketChatTransport } from 'agents/chat/transport';
 import { AgentClient } from 'agents/client';
 import { readUIMessageStream, type UIMessage } from 'ai';
@@ -17,12 +18,19 @@ const transport = new WebSocketChatTransport({ agent });
 const history = await fetch(new URL(`/agents/klippy/${name}/get-messages`, url), { headers: { Authorization: `Bearer ${token}` } });
 if (!history.ok) throw new Error(`Klippy said ${history.status}: is the Worker running, and is KLIPPY_TOKEN right?`);
 let messages: UIMessage[] = await history.json();
-console.log(`Talking to Klippy "${name}" (${messages.length} messages so far). Ctrl+D to quit.`);
+console.log(`Talking to Klippy "${name}" (${messages.length} messages so far). /clear to start over, Ctrl+D to quit.`);
 
 const terminal = createInterface({ input: process.stdin, output: process.stdout });
 process.stdout.write('you> ');
 for await (const text of terminal) {
 	if (!text.trim()) { process.stdout.write('you> '); continue; }
+	// "/clear" wipes this Klippy's chat history. What it remembered (c-05) stays.
+	if (text.trim() === '/clear') {
+		agent.send(JSON.stringify({ type: MessageType.CF_AGENT_CHAT_CLEAR }));
+		messages = [];
+		process.stdout.write('(chat cleared)\nyou> ');
+		continue;
+	}
 	messages = [...messages, { id: crypto.randomUUID(), role: 'user', parts: [{ type: 'text', text }] }];
 	const stream = await transport.sendMessages({ chatId: name, messages, trigger: 'submit-message', messageId: undefined, abortSignal: undefined });
 	// The reply arrives in chunks. Each step gives the whole message so far: print only what's new.

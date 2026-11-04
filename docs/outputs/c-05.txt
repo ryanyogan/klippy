@@ -1,0 +1,68 @@
+# c-05 Klippy remembers you. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, agents 0.33.0,
+# @cloudflare/ai-chat 0.12.2, ai 7.0.162, zod 4.6.7.
+# MODEL: no Anthropic key on the gateway, so the Workers AI fallback (@cf/zai-org/glm-4.7-flash) answered.
+#
+# Notes for the writer:
+# - What changed: src/tools/memory.ts (facts(), remember, forget: a `facts` table in the agent's own SQLite through
+#   this.sql, created on first use); src/agent.ts builds the system prompt per turn with "What you know about the user
+#   (id: fact)" and adds the two tools; scripts/chat.ts gets "/clear" (sends CF_AGENT_CHAT_CLEAR, MessageType from
+#   @cloudflare/ai-chat/types), so the recording can show memory outliving the chat history; test/memory.spec.ts.
+# - Short vs long-term memory: the chat history (c-03/c-04) is short-term and capped at 40 messages; facts are
+#   long-term, survive /clear, and cost a few tokens each turn because they ride in the system prompt.
+# - Caps (budget rules): 50 facts of up to 200 characters (zod .max on the input, a refusal result at 50), so the system
+#   prompt stays small. The facts are read fresh every turn.
+# - Security, for c-06: remember/forget are writes the model makes on its own. Once readLink comes back (c-06), a page
+#   could try to plant a "fact" (memory poisoning), so the prepareStep cut drops remember and forget along with the
+#   notes tools after a page read.
+# - The model's id in "forget" comes from the system prompt list; the fallback model found it without help here.
+
+## Tests: pnpm exec vitest run test/memory.spec.ts --reporter=verbose
+
+ ✓ test/memory.spec.ts > Klippy's long-term memory > remembers a fact and puts it in the system prompt from then on 62ms
+ ✓ test/memory.spec.ts > Klippy's long-term memory > forgets a fact by its id 32ms
+ ✓ test/memory.spec.ts > Klippy's long-term memory > keeps each Klippy's memory to itself 50ms
+ ✓ test/memory.spec.ts > Klippy's long-term memory > refuses a 51st fact 10ms
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+
+## pnpm test (whole repo)
+ Test Files  11 passed (11)
+      Tests  47 passed (47)
+
+## pnpm dev --port 8801 (request log only)
+[wrangler:info] Ready on http://localhost:8801
+[wrangler:info] GET /agents/klippy/jo/get-messages 200 OK (51ms)
+[wrangler:info] GET /agents/klippy/jo 101 Switching Protocols (57ms)
+[wrangler:info] GET /agents/klippy/jo/get-messages 200 OK (5ms)
+[wrangler:info] GET /agents/klippy/jo/get-messages 200 OK (6ms)
+[wrangler:info] GET /agents/klippy/jo 101 Switching Protocols (11ms)
+
+## printf "Please remember that my sister is called Maya.\n/clear\nWhat is my sister called?\n" | KLIPPY_URL=http://localhost:8801 pnpm chat jo
+
+
+> agent@0.0.0 chat /home/ryan/code/klippy/apps/agent
+> tsx --env-file=.dev.vars scripts/chat.ts jo
+
+Talking to Klippy "jo" (0 messages so far). /clear to start over, Ctrl+D to quit.
+you> klippy> I've remembered that your sister is called Maya!
+you> (chat cleared)
+you> klippy> Your sister's name is Maya.
+you> 
+## The chat after /clear holds only the last question and answer (GET .../get-messages, summarised):
+user ['What is my sister called?']
+assistant ['step-start', "Your sister's name is Maya."]
+
+## printf "Forget what you know about my sister.\n/clear\nWhat is my sister called?\n" | KLIPPY_URL=http://localhost:8801 pnpm chat jo
+
+
+> agent@0.0.0 chat /home/ryan/code/klippy/apps/agent
+> tsx --env-file=.dev.vars scripts/chat.ts jo
+
+Talking to Klippy "jo" (2 messages so far). /clear to start over, Ctrl+D to quit.
+you> klippy> I'll forget the fact about your sister for you.
+I've forgotten what I know about your sister.
+you> (chat cleared)
+you> klippy> I don't currently have any information about your sister in my records. If you'd like to share that information, I can remember it for future conversations.
+you> 
+## pnpm exec wrangler deploy --dry-run (apps/agent)
+Total Upload: 3675.45 KiB / gzip: 710.64 KiB
