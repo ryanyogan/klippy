@@ -1,4 +1,4 @@
-# Lane R handoff (2026-11-03, after d-07)
+# Lane R handoff (2026-11-03, after d-11: course D done)
 
 Lane R builds this repo, the reference for bits' build-along courses (bits `docs/plans/build-along.md`,
 decision 071). Read that plan (§1–§5, lane R in §7) and bits `docs/plans/build-along/s0.md` first.
@@ -46,13 +46,17 @@ the day. Tests never call a real model or the real internet. The repo stays loca
 | d-05 | | `apps/web` (Worker `klippy-web`): routes/router/controllers, layout, **the one stylesheet**, `AGENT` service binding; `pnpm dev:web` = one wrangler process with both configs on 8802 |
 | d-06 | | GitHub sign-in (`remix/auth`, signed cookie session, `cop()`), allowlist **by numeric id** (`ALLOWED_GITHUB_IDS`, amended after review; `app/allowlist.test.ts` under `node --test`), agent name `gh-<id>`, `agentFetch` adds `KLIPPY_TOKEN` server-side |
 | d-07 | | `/notes`: list, search (`like`), delete (POST → 303) with `@klippy/db` + `data-table-d1` on the same D1; data-schema for q and id |
+| d-08 | 12847a9 | AI Elements → Remix components in `apps/web/app/ui/` (conversation, message, tool, sources, prompt-input; Apache-2.0 credit lines + `AI-ELEMENTS-LICENSE.txt`); `ai` added; home renders the saved chat; **a refused get-messages is a role=alert line + 502** (the d-07 "0 saved messages" gap) |
+| d-09 | a0cc6aa | the chat island: `clientEntry('/assets/chat.js#Chat')`, `app/actions/public/{entry,chat}.tsx`, esbuild `build:client` → `public/assets` (gitignored) via wrangler `build.command`; `/chat` checks upgrade (426), Origin (403), drops Cookie, `agentFetch` → `/agents/klippy/gh-<id>`; Approve/Deny continue the same reply. Proven in headless Chromium: streaming, approval, reload; wrong token → 401 on page and socket |
+| d-10 | 06d162e | a **real** `claude -p` plan-mode review of the diff (verbatim in d-10.txt), then fixes: `ChatSession` (TypedEventTarget) out of the component, no stuck states, failed send keeps text, parts in order, agent's saved copy applied after a reply (Deny → "You said no") |
+| d-11 | f322060 | checkpoint: `TAG = 'd-11'`; public `GET /klippy/check` on web (own controller, data-schema nonce, `CHECK_LIMITER` 10/min per address, ns 1002) proxying the agent's check; `deploy:web`; both dry-runs build. Live deploy PENDING |
 
 c-07 was amended (2026-11-03, after two security reviews): the honest "ran out of steps" text when the 8-step cap stops a turn mid tool-call (`OUT_OF_STEPS` shared with /ask), and the page cut enforced three ways (no private tools built when a page is in the chat; prepareStep fail-closed; `afterPage()` makes notes/memory/remind tools throw once readLink ran in the turn). c-08 rebased: nudge turns build no tools at all. c-07…c-09 re-tagged; 58/64/64 tests.
 
 a-04 and a-05 were amended (and re-tagged) after two security reviews from the lead. The notes in
 `docs/outputs/a-04.txt` and `a-05.txt` tell the writer what to teach about them.
 
-Verified 2026-11-03: c-07, c-08, c-09 and d-01…d-07 pass frozen install, typecheck and tests in a clean worktree (d-07: agent 64 tests + web 3). d-05…d-07 smoked with `pnpm dev:web` on 8802 (curl; outputs in docs/outputs). Earlier: every tag from c-02 to c-09 passes install (frozen lockfile), typecheck, tests and
+Verified 2026-11-03: d-08…d-11 each pass frozen install, typecheck and tests in a clean worktree (agent 64, web 3, driver 24), d-11's web dry-run also from a clean worktree (986 KiB); d-08…d-11 smoked on 8802. Earlier: c-07, c-08, c-09 and d-01…d-07 pass frozen install, typecheck and tests in a clean worktree (d-07: agent 64 tests + web 3). d-05…d-07 smoked with `pnpm dev:web` on 8802 (curl; outputs in docs/outputs). Earlier: every tag from c-02 to c-09 passes install (frozen lockfile), typecheck, tests and
 `wrangler deploy --dry-run` in a clean worktree (c-09: 14 files, 57 tests). Every tag from c-03 to c-09 was smoked
 on 8801 with `wrangler dev` (curl, and `pnpm chat` from c-04). Before that: every tag from a-03 to b-09 passes typecheck and tests in a clean worktree
 (`git worktree add` + `pnpm install --frozen-lockfile`). a-02 has tests but no typecheck script yet, and
@@ -60,38 +64,63 @@ a-01 has no code. Every tag from a-04 to b-04 was smoked live on 8801 (outputs i
 
 ## Next
 
-1. **Course D, d-08 … d-11** (plan §3 D; prompts follow bits `docs/plans/build-along/prompting-practices.md`; each
-   `docs/outputs/d-NN.txt` has: notes for the writer, the prompt, what to expect, review checklist, steer prompts,
-   real verification). Keep saying the code was written by the lane R agent against the prompt, not a recorded fresh
-   Claude Code run, unless you actually run `claude -p` (it works headless on this machine; d-01/d-02/d-04 did).
-   - d-08 AI Elements → Remix components + CSS (message, conversation, prompt input, tool card, sources) in
-     `apps/web/app/ui/`, server-rendered, keeping the Apache-2.0 notice (check vercel/ai-elements LICENSE first).
-     elements.ai-sdk.dev says it's "moving to shadcn/ui" (ui.shadcn.com/docs/ai-elements); ai-elements npm 1.9.1.
-     The stylesheet already has `.conversation`, `.message[data-from]`, `.tool`, `.prompt-input`, `.sources` classes.
-   - d-09 the chat island (S0 shape): `clientEntry('/assets/chat.js#Chat', …)`, esbuild `build:client` into
-     `public/assets` (gitignore it), `build.command` in wrangler.jsonc, `<script type="module" src="/assets/entry.js">`
-     in the layout, a `/chat` route that forwards the WebSocket upgrade through `agentFetch` (token added server-side;
-     the agent accepts the header on upgrades) to `/agents/klippy/gh-<id>`, history server-rendered from
-     get-messages, approve/deny buttons (`scripts/chat.ts` is the protocol reference: approvals, continuation,
-     server-driven turns). Add `agents` + `ai` to apps/web. Make the home page say when the agent call fails (d-07 gap).
-   - d-10 review and steer: `pnpm typecheck`, `remix doctor`, a refactor, maybe a review skill (P12).
-   - d-11 checkpoint: `TAG`, a web `/klippy/check` (public, rate limited) proxying the agent's check, dry-runs.
-2. **Pending recordings** (nothing faked; each output file says what's missing):
-   - d-03: approve the three project MCP servers in an interactive `claude`, then run the line at the end of d-03.txt.
-   - d-06/d-07: a live GitHub OAuth round trip (exact steps in d-06.txt). Needs a GitHub OAuth app (not created).
-   - c-02 live loop, Claude re-recordings and live deploys: as before (below).
+1. Course D is done at d-11. Next lane work: course E (retrieval) from d-11, per plan §3 E.
+2. Everything still waiting on the owner is in the checklist below. Nothing was deployed or pushed.
 
-### Still pending from courses A–C
+## Owner checklist (every PENDING item, all tags; nothing here was faked)
 
-- c-02, the hand-written loop against Claude itself. Needs a real Anthropic API key:
-  ```sh
-  cd ~/code/klippy && git checkout c-02 && pnpm install --frozen-lockfile
-  cd apps/agent && echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .dev.vars
-  pnpm loop "What time is it right now?" 2>&1 | tee -a ../../docs/outputs/c-02.txt
-  ```
-- Re-record a-04 … c-09 with Claude once a key is on the `default` gateway (BYOK). Live deploys for a-05, b-09, c-09.
+Recording account facts: the `default` gateway has no Anthropic key, so every model answer so far came from the
+Workers AI fallback (`@cf/zai-org/glm-4.7-flash`) and each output says so.
+
+1. **Anthropic key on the gateway (BYOK)**: dashboard → AI → AI Gateway → `default` → provider keys → Anthropic.
+   Unblocks items 2 and 8.
+2. **c-02 live loop** (needs a key in a local file, not the gateway):
+   `cd ~/code/klippy && git checkout c-02 && pnpm install --frozen-lockfile && cd apps/agent && echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .dev.vars && pnpm loop "What time is it right now?" 2>&1 | tee -a ../../docs/outputs/c-02.txt`
+3. **Agent deploys a-05 / b-09 / c-09** (one deploy at master covers the code; per-tag recordings optional):
+   `pnpm --filter agent exec wrangler login`; `pnpm --filter agent exec wrangler secret put KLIPPY_TOKEN` (value:
+   `openssl rand -hex 32`); `pnpm deploy`; `curl -s "https://klippy.<subdomain>.workers.dev/klippy/check?nonce=checkpoint-live"`;
+   `pnpm --filter agent exec wrangler tail` while curling (a-05); `KLIPPY_URL=https://klippy.<subdomain>.workers.dev pnpm chat me` (c-09).
+   Remote D1 schema is already applied (b-09).
+4. **d-03 MCP approval**: run `claude` in ~/code/klippy, approve context7, firecrawl and cloudflare-docs when asked
+   (project servers; don't add them to user settings), then
+   `claude -p "Use the cloudflare-docs MCP: what is the service binding config key in wrangler.jsonc? One line, with the page URL."`
+   and paste the answer into docs/outputs/d-03.txt.
+5. **GitHub OAuth app (d-06/d-07 local round trip)**: github.com/settings/developers → New OAuth App; homepage
+   `http://localhost:8802`, callback `http://localhost:8802/auth/github/callback`. Put GITHUB_CLIENT_ID,
+   GITHUB_CLIENT_SECRET and your numeric id (`gh api user --jq .id`) in ALLOWED_GITHUB_IDS in apps/web/.dev.vars.
+   `pnpm dev:web`, sign in: expect "Hi, <name>", "Your Klippy is gh-<id>." and the chat (since d-08 the
+   "N saved messages" line is gone). A second GitHub account: expect the 403.
+6. **d-09/d-10 in a real browser, signed in for real** (after 5): send a message, approve one saveNote, deny one,
+   reload. Our recordings used headless Chromium with a local test cookie.
+7. **d-11 live deploy (both Workers)**: a second OAuth app (or edit the first) for
+   `https://klippy-web.<subdomain>.workers.dev` + `/auth/github/callback`; set APP_ORIGIN and ALLOWED_GITHUB_IDS in
+   apps/web/wrangler.jsonc; deploy the agent first (item 3); then in apps/web
+   `for s in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET SESSION_SECRET KLIPPY_TOKEN; do pnpm exec wrangler secret put $s; done`
+   (KLIPPY_TOKEN = the agent's; SESSION_SECRET = `openssl rand -base64 32`), `pnpm deploy:web`, then
+   `curl -s "https://klippy-web.<subdomain>.workers.dev/klippy/check?nonce=bits-d11-live" | tee -a docs/outputs/d-11.txt`.
+   Untested: whether `secrets.required` lets the first `secret put` precede the first deploy (it should create the
+   Worker); if not, deploy once, then put the secrets.
+8. **Re-record with Claude** (after 1): a-04 … d-11 model outputs, which are all fallback answers now.
+9. **GitHub repo + CI**: create github.com/ryanyogan/klippy (public, MIT), push master and tags, confirm `ci.yml` is
+   green on every tag; add `CLOUDFLARE_*` secrets only when course F's deploy job lands. actionlint never ran
+   (denied locally).
 
 ## Gotchas
+
+- **Island props are typed serializable**: `clientEntry` rejects `UIMessage[]` (metadata: unknown); the prop is
+  `SerializableObject[]` and the island casts once (`as unknown as UIMessage[]`).
+- **Island setup runs on the server**: open the socket in `handle.queueTask` (browser only); `ChatSession` is loaded
+  with `await import()` there, so agents/client stays out of the server render path. Close on `handle.signal`.
+- **Agent's saved copy vs the stream**: after Deny the stream leaves the part at approval-requested; the
+  `CF_AGENT_CHAT_MESSAGES` broadcast has `output-denied`. ChatSession keeps a broadcast that lands mid-reply and
+  applies it when the reply ends.
+- **Testing the bad-token path**: `wrangler dev … --var KLIPPY_TOKEN:wrong-token` overrides the web Worker only.
+- **Browser checks**: headless Chromium from bits' Playwright (`/home/ryan/code/bits/node_modules/.pnpm/playwright@1.64.1`)
+  with `context.addCookies` for the local test cookie (secure cookies work on http://localhost). Scratch scripts:
+  `cookie.mjs` (run from apps/web) and `d09-browser.cjs` in the session scratchpad, not in the repo.
+- `claude -p --permission-mode plan` writes a copy of its plan to ~/.claude/plans/.
+- The fallback model's text can contradict what happened ("Note saved" before approval; "system error" after Deny).
+  The tool card is the truth; lessons say so.
 
 - **Web local dev**: `pnpm dev:web` runs `wrangler dev --port 8802 -c wrangler.jsonc -c ../agent/wrangler.jsonc`
   (one process, so AGENT resolves without the shared dev registry). Its local D1 lives under apps/web/.wrangler, not
