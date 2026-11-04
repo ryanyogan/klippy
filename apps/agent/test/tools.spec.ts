@@ -22,7 +22,7 @@ describe('tools', () => {
 		fake.model = fakeModel('4');
 		await ask("What's 2+2?");
 		const tools = fake.model.doGenerateCalls[0].tools ?? [];
-		expect(tools.map((t) => t.name)).toEqual(['getWeather', 'getTime', 'saveNote', 'listNotes']);
+		expect(tools.map((t) => t.name)).toEqual(['getWeather', 'getTime', 'saveNote', 'listNotes', 'readLink']);
 		expect(tools.every((t) => t.type === 'function' && (t.description ?? '').length > 40)).toBe(true);
 	});
 
