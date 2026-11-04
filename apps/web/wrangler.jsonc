@@ -1,0 +1,11 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "klippy-web",
+	"main": "app/worker.ts",
+	"compatibility_date": "2026-11-03",
+	"observability": { "enabled": true },
+	// Files in public/ (the stylesheet, later the island bundles) are served by Cloudflare before the Worker runs.
+	"assets": { "directory": "public" },
+	// AGENT is the agent Worker ("klippy"), called like fetch() but Worker to Worker: no public internet in between.
+	"services": [{ "binding": "AGENT", "service": "klippy" }]
+}

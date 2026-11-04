@@ -1,0 +1,23 @@
+{
+	"name": "web",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"engines": {
+		"node": ">=24.3.0"
+	},
+	"scripts": {
+		"dev": "wrangler dev --port 8802 -c wrangler.jsonc -c ../agent/wrangler.jsonc",
+		"deploy": "wrangler deploy",
+		"cf-typegen": "wrangler types",
+		"typecheck": "tsc --noEmit",
+		"doctor": "remix doctor"
+	},
+	"dependencies": {
+		"remix": "3.1.0"
+	},
+	"devDependencies": {
+		"typescript": "5.9.3",
+		"wrangler": "4.157.0"
+	}
+}

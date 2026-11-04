@@ -1,0 +1,108 @@
+# d-05 The Remix shell on Workers. Recorded 2026-11-03 on Linux, Node v24.22.2, remix 3.1.0, wrangler 4.157.0,
+# typescript 5.9.3 (the repo's version; npm latest is 7.0.2). Versions checked with `npm view` on 2026-11-03.
+#
+# Notes for the writer:
+# - What changed: apps/web (new Worker "klippy-web"), the root `dev:web` script, the lockfile.
+#     wrangler.jsonc        main app/worker.ts, assets.directory public, services [{ AGENT → "klippy" }]
+#     tsconfig.json         jsx react-jsx + jsxImportSource remix/component (wrangler's bundler reads it too)
+#     app/worker.ts         export default { fetch: (request) => router.fetch(request) } (Remix guide 03, Workers)
+#     app/routes.ts         route({ home: get('/') })
+#     app/router.ts         createRouter({ middleware: [render()] }), RouterTypes augmentation, router.map
+#     app/actions/controller.tsx  home: env.AGENT.fetch('https://agent/'), then context.render(<HomePage/>)
+#     app/actions/home-page.tsx, app/ui/layout.tsx (document, skip link, top bar, main)
+#     public/styles.css     THE ONE FULL STYLESHEET (402 lines; the owner's exception: it arrives in one block,
+#                           labelled as such). Tokens from docs/ui-brief.md, dark theme, focus ring, 44px targets,
+#                           reduced motion, and the classes the later steps use (chat, tool card, notes).
+# - `remix new` exists (remix 3.1.0 CLI) but makes a Node app: server.ts, hmr.ts, app/assets.ts with
+#   createAssetServer (needs Node fs + esbuild at request time, so it can't run in a Worker). We ran it in a scratch
+#   folder to copy its conventions (app/routes.ts, app/router.ts with the RouterTypes block, app/actions/controller.tsx,
+#   a document component) and left out the Node parts. That's the S0 "smallest setup", and it's what the prompt asks.
+# - env comes from `import { env } from 'cloudflare:workers'`, so the router needs no plumbing for bindings.
+# - No esbuild yet: there's no island until d-09. Static files come from Workers Static Assets.
+# - Local dev runs both Workers in ONE wrangler process: `wrangler dev -c wrangler.jsonc -c ../agent/wrangler.jsonc`
+#   (port 8802). The first config is the one served; the second makes the AGENT binding resolve without the shared dev
+#   registry (S0 gotcha 6). The log line "env.AGENT (klippy) Worker local [not connected]" is printed before the
+#   second Worker starts; the page below proves it connected.
+# - remix doctor's only advice was engines.node; added (">=24.3.0", the starter's value; .node-version is 24).
+# - Agent route security unchanged: `/` on the agent is public; /agents/* still needs the token (d-06 adds it on the
+#   server side of the binding, never in the browser).
+# - How this was made: the lane R agent wrote the code against the prompt below (not a recorded fresh Claude Code
+#   run). The verification is real.
+
+## The prompt (fresh session; plan mode first)
+
+Goal: add apps/web, a Remix 3 app on Workers that renders a home page and calls the agent through a service
+binding, so the browser never talks to the agent directly.
+Use the remix skill: read node_modules/remix/INDEX.md, then guides 02, 03 (the Workers entry) and 04 first.
+Use the cloudflare skill for service bindings and static assets.
+Constraints:
+- Only apps/web/** and the root package.json. remix 3.1.0, wrangler 4.157.0, typescript 5.9.3, exact versions.
+- No remix/assets asset server (it needs Node). Static files from Workers Static Assets in apps/web/public.
+- Binding AGENT → service "klippy". The home page shows the agent's reply to GET /.
+- Styles: one stylesheet, public/styles.css, from the tokens in docs/ui-brief.md. No CSS framework, no React.
+Plan first: list the files and steps, then wait for my go-ahead.
+Done when pnpm typecheck and remix doctor pass, and with `pnpm dev:web` running, curl localhost:8802 shows the
+agent's words. Report the files, both command outputs and the curl output.
+
+# Why: the goal names the security reason (no browser → agent); skills + named guides (P4); the "no asset server"
+# line saves the agent from the Node starter path (S0); plan first because it touches many files (P2); done-when is
+# checks it runs (P8).
+
+## What to expect
+- 8 new files under apps/web plus one stylesheet; the root package.json gets dev:web.
+- Our plan had one change: the agent proposed running `remix new` in place; we kept its layout but not its Node files.
+
+## Review checklist
+- [ ] No `react`, `react-dom`, `@remix-run/react`, `react-router` anywhere (`grep -r "react" apps/web/app`).
+- [ ] tsconfig has jsxImportSource remix/component; routes live in app/routes.ts; actions in app/actions/.
+- [ ] wrangler.jsonc: services AGENT → klippy; assets.directory public; no secrets.
+- [ ] Exact versions in apps/web/package.json (no ^ or "latest").
+- [ ] Reject: remix/assets or createAssetServer in the Worker, a hand-written CSS reset library, inline styles.
+
+## Steer prompts
+- "You imported createAssetServer from remix/assets. It reads files from disk, which a Worker can't. Remove it and
+  serve public/ with Workers Static Assets, as the constraints say."
+- "The page says 'React is not defined'. Add jsx: react-jsx and jsxImportSource: remix/component to
+  apps/web/tsconfig.json, then restart wrangler dev (it doesn't watch tsconfig)."
+- "You copied remix new's dev script (node --watch server.ts). This app runs on Workers: use wrangler dev."
+
+## Verification (real, 2026-11-03)
+
+$ pnpm --filter web typecheck
+> web@0.0.0 typecheck /home/ryan/code/klippy/apps/web
+> tsc --noEmit
+
+$ pnpm --filter web exec remix doctor        (before engines.node was added)
+• Checking environment...
+✓ environment
+  • [ADVICE] package.json does not declare engines.node. Add one to document the supported Node.js version.
+• Checking project...
+✓ project
+• Checking actions...
+✓ actions
+Summary: 0 warnings, 1 advice.
+
+$ pnpm dev:web          (wrangler dev --port 8802 -c wrangler.jsonc -c ../agent/wrangler.jsonc; log excerpt)
+klippy-web has access to the following bindings:
+env.AGENT (klippy)      Worker        local [not connected]
+klippy has access to the following bindings:
+env.DB (klippy-db)                      D1 Database               local
+[wrangler:info] Ready on http://localhost:8802
+
+$ curl -s localhost:8802/
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="color-scheme" content="light dark" /><title>Klippy</title><link rel="stylesheet" href="/styles.css" /></head><body><a href="#main" class="skip">Skip to content</a><header class="bar"><a href="/" class="brand">Klippy</a></header><main id="main" tabindex="-1"><h1>Klippy</h1><p>The agent says: <q>Hi, I am Klippy.</q></p></main></body></html><!-- rmx:flush document -->
+
+$ curl -sI localhost:8802/styles.css
+HTTP/1.1 200 OK
+Content-Type: text/css; charset=utf-8
+Cache-Control: public, max-age=0, must-revalidate
+
+$ curl -s -o /dev/null -w "%{http_code}\n" localhost:8802/nope
+404
+
+$ pnpm --filter web exec wrangler deploy --dry-run
+Total Upload: 164.66 KiB / gzip: 37.14 KiB
+env.AGENT (klippy)      Worker
+
+$ pnpm --filter web exec remix doctor        (after)
+Summary: 0 warnings, 0 advice.

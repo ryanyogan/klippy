@@ -1,0 +1,19 @@
+{
+	"compilerOptions": {
+		"strict": true,
+		"target": "es2024",
+		"lib": ["es2024", "DOM", "DOM.Iterable"],
+		"module": "es2022",
+		"moduleResolution": "Bundler",
+		"allowImportingTsExtensions": true,
+		"verbatimModuleSyntax": true,
+		"isolatedModules": true,
+		"skipLibCheck": true,
+		"noEmit": true,
+		// Remix components use JSX, but not React. Wrangler's bundler reads these two lines too.
+		"jsx": "react-jsx",
+		"jsxImportSource": "remix/component",
+		"types": ["./worker-configuration.d.ts"]
+	},
+	"include": ["worker-configuration.d.ts", "app/**/*.ts", "app/**/*.tsx"]
+}
