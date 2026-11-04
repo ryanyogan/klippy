@@ -15,5 +15,7 @@
 		"jsxImportSource": "remix/component",
 		"types": ["./worker-configuration.d.ts"]
 	},
-	"include": ["worker-configuration.d.ts", "app/**/*.ts", "app/**/*.tsx"]
+	"include": ["worker-configuration.d.ts", "app/**/*.ts", "app/**/*.tsx"],
+	// Tests run under plain Node (node --test), outside the Worker's types.
+	"exclude": ["app/**/*.test.ts"]
 }

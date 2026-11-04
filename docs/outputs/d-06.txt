@@ -1,0 +1,126 @@
+# d-06 Sign in with GitHub. Recorded 2026-11-03 on Linux, Node v24.22.2, remix 3.1.0 (@remix-run/auth 1.0.0,
+# @remix-run/auth-middleware 1.0.0), wrangler 4.157.0.
+#
+# Notes for the writer:
+# - What changed (apps/web only):
+#     app/auth.ts            session cookie (signed with SESSION_SECRET, httpOnly, Secure, SameSite=Lax, 7 days) +
+#                            cookie session storage; createGitHubAuthProvider (scopes ['read:user'] only); the
+#                            allowlist (ALLOWED_GITHUB_IDS: numeric GitHub ids, checked in the callback on the
+#                            profile id and re-checked on every request on the stored id, in the auth scheme's
+#                            verify); requireUser (redirect to /login); agentName(user) = `gh-<GitHub id>`
+#     app/agent.ts           agentFetch(): env.AGENT.fetch with `Authorization: Bearer KLIPPY_TOKEN` added on the
+#                            server. The agent's token check stays exactly as it was; the browser never sees it.
+#     app/routes.ts          auth: login, github, callback, logout (POST)
+#     app/router.ts          middleware: cop(), session(), loadUser (auth()), render()
+#     app/actions/auth/      controller (startExternalAuth → GitHub; finishExternalAuth; 403 page if not allowed;
+#                            completeAuth rotates the session id before writing the user; logout destroys the session)
+#                            and pages (login, not allowed)
+#     app/actions/controller.tsx  controller middleware requireUser; home reads your Klippy's saved messages through
+#                            the binding (`/agents/klippy/gh-<id>/get-messages`) and shows the count
+#     app/ui/layout.tsx      Sign out (a POST form) when signed in
+#     app/allowlist.ts       isAllowedId(id, list): pure, no Worker imports; app/allowlist.test.ts (node --test, 3
+#                            tests; `pnpm test` runs it; excluded from tsc, which has the Worker's types only)
+#     wrangler.jsonc         vars APP_ORIGIN + ALLOWED_GITHUB_IDS (placeholders), secrets.required
+#                            GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, SESSION_SECRET, KLIPPY_TOKEN
+#     .dev.vars.example      every value as a placeholder; worker-configuration.d.ts regenerated with
+#                            `wrangler types --strict-vars=false` (S0 gotcha 2: vars meant to change)
+# - Why an allowlist: Klippy's notes (D1) have no owner column. It's one person's app. Without the allowlist, anyone
+#   with a GitHub account could sign in and get their own agent that spends your model budget and reads your notes
+#   (d-07). Teach it as "sign-in says who you are; the allowlist says whether you're allowed".
+# - Ids, not logins (amended after a security review, 2026-11-03): a GitHub login can be renamed, and someone else can
+#   then register the old name. The numeric id never changes. Show learners how to find theirs:
+#     gh api user --jq .id                     (signed in to the GitHub CLI)
+#     https://api.github.com/users/<login>     (the "id" field)
+#   The test "refuses the same login with a different id" pins it. The owner's rule is no front-end tests; this is one
+#   pure function with a plain Node test, added at the coordinator's request after the review.
+# - Type gotcha seen: requireAuth as *action* middleware didn't narrow context.auth to GoodAuth (TS2339 on
+#   .identity); as *controller* middleware it does. So routes that need a user live in a controller that has it.
+# - remix/auth's GitHub flow adds PKCE (code_challenge S256) and a state value on its own (see the Location below).
+# - Secrets: none committed. Deploying needs:
+#     wrangler secret put GITHUB_CLIENT_ID     (from a GitHub OAuth app; callback https://<your web app>/auth/github/callback)
+#     wrangler secret put GITHUB_CLIENT_SECRET
+#     wrangler secret put SESSION_SECRET       (openssl rand -hex 32)
+#     wrangler secret put KLIPPY_TOKEN         (the same value the agent Worker has)
+#   and APP_ORIGIN / ALLOWED_GITHUB_IDS edited in wrangler.jsonc.
+# - PENDING (owner): a live GitHub round trip. Steps:
+#     1. github.com/settings/developers → New OAuth App. Homepage http://localhost:8802, callback
+#        http://localhost:8802/auth/github/callback. Copy the client id; generate a client secret.
+#     2. In apps/web/.dev.vars put GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET and your id in ALLOWED_GITHUB_IDS.
+#     3. pnpm dev:web, open http://localhost:8802, sign in. Expect "Hi, <name>" and "Your Klippy is gh-<id>. It has 0
+#        saved messages." Then try a second GitHub account: expect the 403 "This Klippy isn't yours".
+#   The lane R agent did not create a GitHub app (owner rule). Everything up to GitHub's door is verified below.
+# - How this was made: the lane R agent wrote the code against the prompt below (not a recorded fresh Claude Code run).
+
+## The prompt (fresh session; plan mode first)
+
+Goal: add GitHub sign-in so each person gets their own Klippy, chosen on the server from their GitHub id.
+Use the remix skill. Read node_modules/remix/INDEX.md, guide 10, and the auth, auth-middleware, session and cookie
+READMEs first.
+Constraints:
+- remix/auth's GitHub provider, remix/session with cookie storage, remix/middleware/auth, cop(). No other auth package.
+- Only my GitHub account id may sign in (ALLOWED_GITHUB_IDS, not logins: those can be renamed); anyone else
+  gets a 403 page and no session.
+- The agent token stays on the server: add it to the service-binding call, never send it to the browser.
+- Secrets in .dev.vars and `wrangler secret put` only; placeholders in .dev.vars.example. Touch only apps/web/**.
+Plan first, then wait for my go-ahead.
+Done when typecheck and remix doctor pass, and curl shows: / redirects to /login, /auth/github redirects to GitHub,
+and a cross-site POST /logout gets 403. Report the files and the outputs.
+
+# Why: the goal says why the server picks the agent (a user can't open someone else's Klippy); named READMEs (P4);
+# "no other auth package" stops hand-rolled OAuth (P11); the allowlist and token lines are the security bar.
+
+## What to expect
+- New: app/auth.ts, app/agent.ts, app/actions/auth/{controller,pages}.tsx, .dev.vars.example. Changed: routes,
+  router, the home controller and page, the layout, wrangler.jsonc, worker-configuration.d.ts.
+
+## Review checklist
+- [ ] The cookie is httpOnly, Secure, SameSite=Lax and signed (secrets: [env.SESSION_SECRET]).
+- [ ] completeAuth() before writing the user (new session id); logout is a POST and destroys the session.
+- [ ] The agent name comes from the session (gh-<id>), never from a URL or form field.
+- [ ] KLIPPY_TOKEN appears only in app/agent.ts (server) — `grep -r KLIPPY_TOKEN apps/web/app`.
+- [ ] The allowlist compares numeric ids, not logins.
+- [ ] Scopes are read:user only. No real secret in any committed file (`git diff | grep -i secret`).
+- [ ] Reject: a hand-written OAuth exchange with fetch, a session stored in localStorage, the allowlist checked only
+      at sign-in (it must be re-checked per request), `?token=` in a browser URL.
+
+## Steer prompts
+- "You wrote the GitHub token exchange by hand with fetch. Delete it and use createGitHubAuthProvider with
+  startExternalAuth / finishExternalAuth from remix/auth, as the README shows."
+- "context.auth.identity doesn't typecheck in home. Move requireUser from the action to the controller's
+  middleware, so the controller's context knows the user is signed in."
+- "Anyone with a GitHub account can sign in. Add ALLOWED_GITHUB_IDS, check the profile id in the callback (403, no
+  session) and the stored id again in the auth scheme's verify()."
+- "You compared logins. A login can be renamed and re-registered by someone else: compare the numeric id instead."
+
+## Verification (real, 2026-11-03; pnpm dev:web on 8802 with placeholder GitHub credentials in .dev.vars)
+
+$ pnpm --filter web typecheck   → tsc --noEmit, no errors
+$ pnpm --filter web exec remix doctor
+Summary: 0 warnings, 0 advice.
+
+## GET /
+HTTP/1.1 302 Found
+Location: /login
+## GET /login
+<main id="main" tabindex="-1"><section class="signin"><h1>Klippy</h1><p class="muted">Your personal agent: it chats, remembers, keeps notes and reminds you.</p><a href="/auth/github" class="button">Sign in with GitHub</a></section></main>
+## GET /auth/github
+HTTP/1.1 302 Found
+Location: https://github.com/login/oauth/authorize?client_id=placeholder-client-id&redirect_uri=http%3A%2F%2Flocalhost%3A8802%2Fauth%2Fgithub%2Fcallback&scope=read%3Auser&state=d2POFB7mibIcrC_wpY5CyZ0taulg-QkyOUVuxeBaaRw&code_challenge=ZwtLrub5MSh94ZNPCrYvSkJXJKu2n8o8Xzse0sIIrrM&code_challenge_method=S256
+Set-Cookie: __klippy=<signed>; HttpOnly; Max-Age=604800; Path=/; SameSite=Lax; Secure
+## callback with a wrong state (curl -b jar ".../auth/github/callback?code=fake&state=wrong")
+400
+<p role="alert" class="notice error">GitHub sign-in didn't finish. Try again.
+## POST /logout from another site (Origin: https://evil.example, Sec-Fetch-Site: cross-site)
+403
+## POST /logout same origin
+HTTP/1.1 302 Found
+Location: /login
+$ wrangler deploy --dry-run (apps/web): Total Upload: 221.88 KiB / gzip: 50.38 KiB
+
+## After the id amend (2026-11-03)
+$ pnpm --filter web test        (node --test app/*.test.ts)
+✔ lets in an id on the list (0.45411ms)
+✔ refuses the same login with a different id (a renamed or re-registered account) (0.07487ms)
+✔ refuses everyone when the list is empty or a placeholder (0.056987ms)
+$ pnpm --filter web typecheck → no errors; remix doctor → Summary: 0 warnings, 0 advice.
+$ curl (pnpm dev:web): GET / → 302 Location: /login; GET /auth/github → 302 (to GitHub)

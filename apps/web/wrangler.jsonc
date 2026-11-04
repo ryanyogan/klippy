@@ -7,5 +7,13 @@
 	// Files in public/ (the stylesheet, later the island bundles) are served by Cloudflare before the Worker runs.
 	"assets": { "directory": "public" },
 	// AGENT is the agent Worker ("klippy"), called like fetch() but Worker to Worker: no public internet in between.
-	"services": [{ "binding": "AGENT", "service": "klippy" }]
+	"services": [{ "binding": "AGENT", "service": "klippy" }],
+	"vars": {
+		// Your deployed web app's address (GitHub sends you back here). .dev.vars sets http://localhost:8802 locally.
+		"APP_ORIGIN": "https://klippy-web.YOUR-SUBDOMAIN.workers.dev",
+		// The GitHub account ids allowed in, comma-separated (`gh api user --jq .id`). Klippy is personal: put only yours.
+		"ALLOWED_GITHUB_IDS": "your-github-id"
+	},
+	// Set each with `wrangler secret put <NAME>`, and locally in .dev.vars. Never in this file.
+	"secrets": { "required": ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "SESSION_SECRET", "KLIPPY_TOKEN"] }
 }

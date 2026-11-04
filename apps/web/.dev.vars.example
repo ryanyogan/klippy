@@ -1,0 +1,11 @@
+# Copy to .dev.vars (gitignored) for `pnpm dev:web`. Real values never go in git.
+APP_ORIGIN=http://localhost:8802
+# Your numeric GitHub id: gh api user --jq .id (or https://api.github.com/users/<login>)
+ALLOWED_GITHUB_IDS=your-github-id
+# From your GitHub OAuth app (github.com/settings/developers), callback http://localhost:8802/auth/github/callback
+GITHUB_CLIENT_ID=your-client-id
+GITHUB_CLIENT_SECRET=your-client-secret
+# Any long random string: openssl rand -hex 32
+SESSION_SECRET=change-me
+# The same value as apps/agent/.dev.vars
+KLIPPY_TOKEN=change-me

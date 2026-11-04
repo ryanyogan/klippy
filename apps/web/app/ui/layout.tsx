@@ -1,7 +1,9 @@
 import type { Handle, RemixNode } from 'remix/component';
+import type { User } from '../auth.ts';
+import { routes } from '../routes.ts';
 
 // The one document every page renders inside: head, the stylesheet, the top bar, and a main column.
-export function Layout(handle: Handle<{ title: string; children?: RemixNode }>) {
+export function Layout(handle: Handle<{ title: string; user?: User; children?: RemixNode }>) {
 	return () => (
 		<html lang="en">
 			<head>
@@ -16,9 +18,16 @@ export function Layout(handle: Handle<{ title: string; children?: RemixNode }>) 
 					Skip to content
 				</a>
 				<header class="bar">
-					<a class="brand" href="/">
+					<a class="brand" href={routes.home.href()}>
 						Klippy
 					</a>
+					{handle.props.user && (
+						<form method="post" action={routes.auth.logout.href()}>
+							<button class="quiet" type="submit">
+								Sign out @{handle.props.user.login}
+							</button>
+						</form>
+					)}
 				</header>
 				<main id="main" tabIndex={-1}>
 					{handle.props.children}
