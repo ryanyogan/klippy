@@ -13,6 +13,12 @@ vi.mock('../src/ingest/read', () => ({
 	},
 }));
 
+// No real Vectorize in tests: record what would be stored.
+const stored = vi.hoisted(() => [] as { id: number; owner: string; source_id: number }[]);
+vi.mock('../src/retrieval/vectors', () => ({
+	upsertChunks: async (_env: Env, rows: { id: number; owner: string; source_id: number }[]) => (stored.push(...rows), rows.length),
+}));
+
 beforeAll(() => applyD1Migrations(env.DB, env.TEST_MIGRATIONS));
 
 const opts = { toolCallId: 't', messages: [], context: {} };
@@ -85,6 +91,8 @@ describe('ingest', () => {
 		expect(await source(id)).toMatchObject({ owner: 'nora', kind: 'file', title: 'pip.txt', body: 'Pip is my dog. She likes carrots.', status: 'ready' });
 		const { results } = await env.DB.prepare('SELECT owner, position, text FROM chunks WHERE source_id = ?').bind(id).all();
 		expect(results).toEqual([{ owner: 'nora', position: 0, text: 'Pip is my dog. She likes carrots.' }]);
+		// and its one chunk went to the vector index, tagged with its owner
+		expect(stored.filter((row) => row.source_id === id).map((row) => row.owner)).toEqual(['nora']);
 	});
 
 	it(`a Klippy can add at most ${MAX_SOURCES_PER_DAY} sources a day`, async () => {

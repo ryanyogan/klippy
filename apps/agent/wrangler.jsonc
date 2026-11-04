@@ -37,6 +37,9 @@
 	],
 	// Klippy, the agent: one Durable Object per name, each with its own SQLite database.
 	"durable_objects": { "bindings": [{ "name": "Klippy", "class_name": "Klippy" }] },
+	// Vectors for every chunk, to search by meaning. There's no local Vectorize, so `wrangler dev` uses the real index
+	// (remote); the tests use a stand-in. Created with: wrangler vectorize create klippy-notes --dimensions=768 --metric=cosine
+	"vectorize": [{ "binding": "VECTORIZE", "index_name": "klippy-notes", "remote": true }],
 	// Ingest runs as a Workflow: durable steps that retry on their own and survive restarts (course E).
 	"workflows": [{ "name": "klippy-ingest", "binding": "INGEST", "class_name": "IngestWorkflow" }],
 	// Tells Cloudflare to create the class, with SQLite storage. Never edit a deployed tag: add a new one.

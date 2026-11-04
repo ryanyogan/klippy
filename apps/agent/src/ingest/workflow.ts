@@ -5,6 +5,7 @@ import type { Klippy } from '../agent';
 import { chunk } from './chunk';
 import { readLinkAsMarkdown } from './read';
 import { saveChunks } from './sources';
+import { type ChunkRow, upsertChunks } from '../retrieval/vectors';
 
 export type IngestParams = { sourceId: number };
 
@@ -30,6 +31,13 @@ export class IngestWorkflow extends AgentWorkflow<Klippy, IngestParams> {
 			}
 			// Cut the text into chunks and save them, each with its source and position.
 			const count = await step.do('chunk', () => saveChunks(this.env.DB, source, chunk(body)));
+			// Embed every chunk and store the vectors in Vectorize (Workers AI is called once for up to 50 chunks).
+			await step.do('embed', { retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' } }, async () => {
+				const { results } = await this.env.DB.prepare('SELECT id, owner, source_id, text FROM chunks WHERE source_id = ? ORDER BY position')
+					.bind(sourceId)
+					.all<ChunkRow>();
+				return upsertChunks(this.env, results);
+			});
 			await step.do('ready', () => db.update(sources, sourceId, { status: 'ready' }));
 			return { sourceId, status: 'ready', chunks: count };
 		} catch (error) {

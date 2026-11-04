@@ -1,0 +1,34 @@
+import { describe, expect, it } from 'vitest';
+import { EMBEDDING_MODEL, upsertChunks } from '../src/retrieval/vectors';
+
+// A stand-in env: Workers AI returns one tiny vector per text, Vectorize records what it's given.
+function fakeEnv() {
+	const calls = { run: [] as unknown[], upsert: [] as VectorizeVector[][] };
+	const env = {
+		AI: { run: async (model: string, input: { text: string[] }) => (calls.run.push({ model, input }), { data: input.text.map((_, i) => [i, 1]) }) },
+		VECTORIZE: { upsert: async (vectors: VectorizeVector[]) => (calls.upsert.push(vectors), { mutationId: 'm' }) },
+	} as unknown as Env;
+	return { env, calls };
+}
+
+describe('upsertChunks', () => {
+	it('embeds every chunk in one call and stores it under chunk-<id>, tagged with its owner and source', async () => {
+		const { env, calls } = fakeEnv();
+		const rows = [
+			{ id: 7, owner: 'gh-1', source_id: 3, text: 'Pip is my dog.' },
+			{ id: 8, owner: 'gh-1', source_id: 3, text: 'She likes carrots.' },
+		];
+		expect(await upsertChunks(env, rows)).toBe(2);
+		expect(calls.run).toEqual([{ model: EMBEDDING_MODEL, input: { text: ['Pip is my dog.', 'She likes carrots.'] } }]);
+		expect(calls.upsert[0]).toEqual([
+			{ id: 'chunk-7', values: [0, 1], metadata: { owner: 'gh-1', sourceId: 3 } },
+			{ id: 'chunk-8', values: [1, 1], metadata: { owner: 'gh-1', sourceId: 3 } },
+		]);
+	});
+
+	it('calls nothing for a source with no chunks', async () => {
+		const { env, calls } = fakeEnv();
+		expect(await upsertChunks(env, [])).toBe(0);
+		expect(calls.run).toEqual([]);
+	});
+});

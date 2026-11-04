@@ -1,0 +1,70 @@
+# e-04 Embeddings into Vectorize. Recorded 2026-11-03 on Linux, Node v24.22.2, agents 0.33.0, wrangler 4.157.0.
+#
+# Facts checked 2026-11-03 (Firecrawl, maxAge 0):
+# - Cloudflare's "Vectorize and Workers AI" tutorial (last updated 2026-10-12) still uses @cf/baai/bge-base-en-v1.5 with
+#   --dimensions=768 --metric=cosine. The model page: 768-dimensional output, max 512 input tokens,
+#   $0.0666 per million input tokens, no deprecation or replacement mentioned. So the plan's choice stands.
+#
+# Notes for the writer:
+# - Real resources created on the recording account (the learner runs the same two commands):
+#     wrangler vectorize create klippy-notes --dimensions=768 --metric=cosine
+#     wrangler vectorize create-metadata-index klippy-notes --propertyName=owner --type=string
+#   Dimensions and metric can't change later; create the metadata index BEFORE upserting (Vectorize only indexes
+#   metadata for vectors written after the index exists).
+# - What changed:
+#     apps/agent/wrangler.jsonc               vectorize: VECTORIZE -> klippy-notes, "remote": true (there is no local
+#                                             Vectorize: `wrangler dev` uses the real index; tests use a stand-in)
+#     apps/agent/worker-configuration.d.ts    regenerated: VECTORIZE: VectorizeIndex
+#     apps/agent/src/retrieval/vectors.ts     EMBEDDING_MODEL, embed() (env.AI.run, up to 100 texts a call),
+#                                             upsertChunks(): id chunk-<D1 id>, metadata { owner, sourceId }
+#     apps/agent/src/ingest/workflow.ts       new step 'embed' (3 retries) after 'chunk': reads the source's chunks back
+#                                             from D1 and upserts them (one Workers AI call: at most 50 chunks)
+#     apps/agent/test/vectors.spec.ts         2 tests with a stand-in env: one embed call, ids and metadata; nothing
+#                                             for no chunks
+#     apps/agent/test/ingest.spec.ts          vectors module mocked; the file test checks its chunk was "stored"
+# - Teach: a vector is the text's meaning as 768 numbers; cosine compares directions (1 = same meaning). The owner
+#   filter is the per-person wall: the second query below asks for another owner and gets nothing.
+# - Vectorize is eventually consistent: the upsert returns a mutation id, and the vectors became queryable about a
+#   minute later here (vectorCount stayed 0, then 11). Say so in the lesson, or learners think it failed.
+# - Upsert by chunk id is idempotent, so a retried step overwrites. Re-chunking a source gives new chunk ids, which
+#   leaves old vectors behind; search hydrates chunk text from D1 by id (e-07), so a vector without a row is dropped.
+# - When AI Search (managed RAG) is the better call: you want ingest, chunking, embedding and retrieval run for you
+#   from an R2 bucket or a website, and don't need your own ranking. We build it by hand to learn the parts. Re-check
+#   AI Search's current docs on writing day.
+
+## Verification (real, 2026-11-03)
+
+$ pnpm typecheck        -> ok
+$ pnpm exec vitest run  -> 17 files, 78 tests passed
+
+$ pnpm exec wrangler vectorize create klippy-notes --dimensions=768 --metric=cosine
+✅ Successfully created a new Vectorize index: 'klippy-notes'
+$ pnpm exec wrangler vectorize create-metadata-index klippy-notes --propertyName=owner --type=string
+✅ Successfully enqueued metadata index creation request. Mutation changeset identifier: 77f21857-16e1-42f5-827b-89fc08538089.
+$ pnpm exec wrangler vectorize list-metadata-index klippy-notes
+│ owner        │ String │
+
+$ pnpm exec wrangler dev --port 8801      (env.VECTORIZE (klippy-notes)  Vectorize Index  remote)
+$ curl ... -F "file=@pip.md;type=text/markdown" http://localhost:8801/agents/klippy/me/file
+{"id":4,"title":"pip.md","status":"queued"}
+$ curl ... -F "file=@docs/ui-brief.md;type=text/markdown" http://localhost:8801/agents/klippy/me/file
+{"id":5,"title":"ui-brief.md","status":"queued"}
+$ wrangler d1 execute DB --local --json --command "SELECT s.id, s.title, s.status, min(c.id) AS first, max(c.id) AS last FROM sources s JOIN chunks c ON c.source_id = s.id WHERE s.id > 3 GROUP BY s.id"
+{"id":4,"title":"pip.md","status":"ready","first":11,"last":11}
+{"id":5,"title":"ui-brief.md","status":"ready","first":12,"last":21}
+
+(about a minute later)
+$ pnpm exec wrangler vectorize info klippy-notes
+│ 768        │ 11          │ bfbeba40-e162-47a0-88b6-c11148ec2c1e │ 2026-11-04T02:32:49.335Z │
+$ pnpm exec wrangler vectorize query klippy-notes --vector-id chunk-11 --top-k 3 --return-metadata all --filter '{"owner":"me"}'
+{
+  "count": 3,
+  "matches": [
+    { "id": "chunk-11", "score": 0.9999988, "metadata": { "owner": "me", "sourceId": 4 } },
+    { "id": "chunk-15", "score": 0.57529664, "metadata": { "owner": "me", "sourceId": 5 } },
+    { "id": "chunk-21", "score": 0.5639974, "metadata": { "owner": "me", "sourceId": 5 } }
+  ]
+}
+(chunk-11 is the Pip note itself, so it matches itself at ~1.0; the UI brief's chunks are only loosely related.)
+$ pnpm exec wrangler vectorize query klippy-notes --vector-id chunk-11 --top-k 3 --filter '{"owner":"someone-else"}'
+▲ [WARNING] Could not find any relevant vectors
