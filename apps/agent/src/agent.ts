@@ -1,9 +1,10 @@
 import { AIChatAgent } from '@cloudflare/ai-chat';
-import { convertToModelMessages, isStepCount, streamText, tool, type UIMessage } from 'ai';
-import { MAX_QUESTION } from './ask';
+import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, isStepCount, streamText, tool, type ToolSet, type UIMessage } from 'ai';
+import { MAX_QUESTION, OUT_OF_STEPS } from './ask';
 import { underLimit } from './guard';
 import { model } from './model';
 import { facts, memoryTools } from './tools/memory';
+import { readLink } from './tools/link';
 import { noteTools } from './tools/notes';
 import { getTime } from './tools/time';
 import { getWeather } from './tools/weather';
@@ -16,16 +17,21 @@ export class Klippy extends AIChatAgent {
 
 	// Called for every new message. this.messages already holds it, and the whole conversation before it.
 	async onChatMessage(_onFinish: unknown, options?: { abortSignal?: AbortSignal }) {
+		// Your latest message. (After you approve a tool, the turn continues, and the last message is Klippy's.)
+		const question = textOf(this.messages.findLast((m) => m.role === 'user'));
 		// Same locks as /ask: a message of at most 2,000 characters, and at most 10 turns a minute per Klippy.
-		if (textOf(this.messages.at(-1)).length > MAX_QUESTION) {
+		if (question.length > MAX_QUESTION) {
 			return new Response(`That message is over ${MAX_QUESTION} characters. Send a shorter one.`);
 		}
 		if (!(await underLimit(this.env, `chat:${this.name}`))) {
 			return new Response('Too many messages. Wait a minute.');
 		}
 		// Read the facts fresh every turn, so the model sees what it remembered a moment ago.
-		const { saveNote, listNotes } = noteTools(this.env.DB);
 		const known = facts(this).map(({ id, fact }) => `${id}: ${fact}`);
+		// A web page could be giving orders. Once one is anywhere in the chat, this turn gets no private tools at all.
+		const pageInChat = this.messages.some((m) => m.parts.some((part) => part.type === 'tool-readLink'));
+		const turn = { pageRead: false }; // set the moment readLink runs in this turn
+		const tools = chatTools(this, this.env, question, turn, pageInChat);
 		const result = streamText({
 			model: model(this.env),
 			system: [
@@ -36,20 +42,92 @@ export class Klippy extends AIChatAgent {
 			// The conversation so far, minus any message that was too long (it stays in the chat, but never reaches the model).
 			messages: await convertToModelMessages(this.messages.filter((m) => m.role !== 'user' || textOf(m).length <= MAX_QUESTION)),
 			maxOutputTokens: 300,
-			tools: {
-				getWeather,
-				getTime,
-				...memoryTools(this),
-				listNotes,
-				// Saving a note writes to your database, so Klippy asks you first. The turn pauses until you answer.
-				saveNote: tool({ ...saveNote, needsApproval: true }),
+			tools,
+			// Up to 8 steps per turn (each step is one model call), then stop, whatever happens.
+			stopWhen: isStepCount(MAX_STEPS),
+			// Before each step, look at the steps so far.
+			prepareStep: ({ steps }) => {
+				const calls = steps.flatMap((step) => step.toolCalls);
+				// A web page could be giving orders. Once one is in the chat, no tools that read or write your data.
+				const restricted = pageInChat || calls.some((call) => call.toolName === 'readLink');
+				const activeTools = restricted ? SAFE : undefined;
+				// A stuck loop: the same tool with the same input twice. No more tools: answer with what you have.
+				// (The page rule still applies here, so this path can never hand back the private tools.)
+				const asked = calls.map((call) => `${call.toolName} ${JSON.stringify(call.input)}`);
+				if (new Set(asked).size < asked.length) return { toolChoice: 'none', activeTools };
+				return { activeTools };
 			},
-			stopWhen: isStepCount(3),
 			abortSignal: options?.abortSignal, // the client cancelled: stop paying for tokens
 		});
-		return result.toUIMessageStreamResponse();
+		// Pass the reply through as it streams. If the cap stopped it mid tool-call, end with an honest sentence, as /ask does.
+		const stream = createUIMessageStream({
+			execute: async ({ writer }) => {
+				for await (const chunk of result.toUIMessageStream({ sendFinish: false })) writer.write(chunk);
+				const steps = await result.steps;
+				const last = steps.at(-1);
+				const waiting = last?.content.some((part) => part.type === 'tool-approval-request'); // paused for your y/n, not stuck
+				if (steps.length >= MAX_STEPS && last?.finishReason === 'tool-calls' && !waiting) {
+					writer.write({ type: 'text-start', id: 'out-of-steps' });
+					writer.write({ type: 'text-delta', id: 'out-of-steps', delta: OUT_OF_STEPS });
+					writer.write({ type: 'text-end', id: 'out-of-steps' });
+				}
+				writer.write({ type: 'finish' });
+			},
+		});
+		return createUIMessageStreamResponse({ stream });
 	}
 }
+
+// Each step is one model call. 8 is room for a few tools in one turn, and a hard cap on what a turn can cost.
+const MAX_STEPS = 8;
+
+// The tools for one turn. With a page in the chat, only the three safe ones. Otherwise the private ones too (notes,
+// memory, reminders), each locked so it refuses to run once readLink has run in this turn (afterPage).
+export function chatTools(agent: Klippy, env: Env, question: string, turn: { pageRead: boolean }, pageInChat: boolean): ToolSet {
+	const link = readLink(env, question); // only the exact links in your latest message, no redirects (b-08)
+	const safe: ToolSet = {
+		getWeather,
+		getTime,
+		readLink: {
+			...link,
+			execute: async (input: Parameters<typeof link.execute>[0], opts: Parameters<typeof link.execute>[1]) => {
+				turn.pageRead = true; // before the fetch: even a refused link locks the private tools for the rest of the turn
+				return link.execute(input, opts);
+			},
+		},
+	};
+	if (pageInChat) return safe;
+	const { saveNote, listNotes } = noteTools(env.DB);
+	return {
+		...safe,
+		...afterPage(turn, {
+			...memoryTools(agent),
+			listNotes,
+			// Saving a note writes to your database, so Klippy asks you first. The turn pauses until you answer.
+			saveNote: tool({ ...saveNote, needsApproval: true }),
+		}),
+	};
+}
+
+// Wrap the private tools (notes, memory) so they refuse to run once a page was read in this turn. prepareStep already
+// stops offering them; this is the lock behind it, in case a model calls a tool it wasn't offered.
+export function afterPage(turn: { pageRead: boolean }, tools: ToolSet): ToolSet {
+	return Object.fromEntries(
+		Object.entries(tools).map(([name, t]) => [
+			name,
+			{
+				...t,
+				execute: async (input: unknown, opts: Parameters<NonNullable<typeof t.execute>>[1]) => {
+					if (turn.pageRead) throw new Error(`${name} can't run after reading a page.`);
+					return t.execute!(input, opts);
+				},
+			},
+		]),
+	);
+}
+
+// The tools that never touch your notes or memory: all Klippy may use once a web page is in the conversation.
+const SAFE: ('getWeather' | 'getTime' | 'readLink')[] = ['getWeather', 'getTime', 'readLink'];
 
 // The text of a chat message (its other parts are tool calls and the like).
 function textOf(message: UIMessage | undefined) {

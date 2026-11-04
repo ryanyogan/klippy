@@ -1,0 +1,99 @@
+# c-07 When loops go wrong. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, agents 0.33.0,
+# @cloudflare/ai-chat 0.12.2, ai 7.0.162.
+# MODEL: no Anthropic key on the gateway, so the Workers AI fallback (@cf/zai-org/glm-4.7-flash) answered.
+#
+# Notes for the writer:
+# - What changed (src/agent.ts only, plus test/loops.spec.ts):
+#   1. stopWhen: isStepCount(8) (was 3): room for real multi-tool turns, still a hard cap per turn.
+#   2. prepareStep, run before every step: if the same tool was called twice with the same input, the next step gets
+#      toolChoice "none" (answer with what you have). ai 7 enforces it: a model that calls a tool anyway raises
+#      AI_ToolChoiceViolationError (seen while writing the test), so the turn can't keep looping on tools.
+#   3. readLink is back (b-08's tool, unchanged: exact links in the latest user message, no redirects, 8,000 chars
+#      per page). Its question is now the last USER message (findLast), because after an approval (c-06) the turn
+#      continues with Klippy's message last. The 2,000-character check uses the same message.
+#   4. The lethal-trifecta cut, made stronger for a chat: once any readLink call is in the conversation (this.messages,
+#      not just this turn's steps), activeTools is getWeather, getTime, readLink only: no listNotes, saveNote,
+#      remember or forget until /clear (or until the page falls out of the 40 kept messages). In /ask (b-08) each
+#      request started fresh; a chat keeps the page in its history, so a per-turn check would let the next turn act
+#      on the page's orders. The live run below shows it: after reading example.com, "Now list my notes" gets no
+#      notes tool.
+# - Out of steps (amended 2026-11-03): if the 8-step cap stops a turn mid tool-call, the last step has no text. The
+#   reply now ends with the same sentence as /ask (b-09), OUT_OF_STEPS in src/ask.ts. The agent wraps the stream in
+#   createUIMessageStream: it passes every chunk through, then checks result.steps; only when there were 8 steps, the
+#   last ended with "tool-calls", and it isn't waiting for an approval (c-06), it writes one text part. A turn paused
+#   for your y/n stops early (fewer steps), so it never gets the sentence. Two tests (cap → sentence; normal answer →
+#   nothing added). The Workers AI model doesn't hit 8 steps on its own, so the live chat below can't show it; the
+#   test is the proof.
+# - Page cut, enforced (amended 2026-11-03 after two security reviews). Teach it as three locks, outermost first:
+#   1. A turn that starts with a page anywhere in the chat builds only getWeather, getTime and readLink
+#      (chatTools(..., pageInChat)). The private tools don't exist in that turn.
+#   2. Inside a turn, prepareStep stops offering them once readLink was called. It's ordered fail-closed: the page
+#      rule is computed first, so the stuck-loop branch returns { toolChoice: 'none', activeTools } and can never
+#      hand the private tools back.
+#   3. activeTools only limits what the model is *offered*, so the private tools (listNotes, saveNote, remember,
+#      forget) are wrapped by afterPage(): a per-turn flag, set the moment readLink runs (even for a refused link),
+#      makes them throw "<name> can't run after reading a page." That's the lock behind the offer.
+#   Limit to say out loud: two tool calls in the *same* step run side by side, so a listNotes the model asked for in
+#   the same step as readLink (before it saw the page) can still run. It was chosen before the page was read.
+#   Tests (4 new in loops.spec): page read + repeated call → toolChoice none and still no private tools; a turn
+#   starting with a page has only the three safe tools in its tools object; after readLink runs, all four private
+#   tools throw; a model forcing listNotes after readLink gets an output-error part. The fail-closed test fails on
+#   the pre-amend prepareStep (1 failed | 5 passed), seen before the fix.
+# - Cost framing: each step is one model call that resends the whole conversation, so 8 steps can cost ~8x one call.
+
+## Tests: pnpm exec vitest run test/loops.spec.ts --reporter=verbose
+
+ ✓ test/loops.spec.ts > when loops go wrong > stops a stuck loop: the same call twice, and the next step may not call tools 67ms
+ ✓ test/loops.spec.ts > when loops go wrong > never runs more than 8 steps in one turn 37ms
+ ✓ test/loops.spec.ts > when loops go wrong > says it ran out of steps when the cap stops a turn mid tool-call (amend)
+ ✓ test/loops.spec.ts > when loops go wrong > adds nothing when the turn ends with an answer (amend)
+ ✓ test/loops.spec.ts > when loops go wrong > keeps the private tools off when a page read and a repeated call meet in one turn (amend)
+ ✓ test/loops.spec.ts > when loops go wrong > builds no private tools at all for a turn that starts with a page in the chat (amend)
+ ✓ test/loops.spec.ts > when loops go wrong > locks the private tools the moment readLink runs, even if the model calls one it was not offered (amend)
+ ✓ test/loops.spec.ts > when loops go wrong > never lists notes when the model forces listNotes after readLink in one turn (amend)
+ ✓ test/loops.spec.ts > when loops go wrong > drops the notes and memory tools once the model reads a page, for the rest of the chat 39ms
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+ # Before the amend's agent change, the out-of-steps test fails: "× says it ran out of steps…" (1 failed | 4 passed).
+
+## pnpm test (whole repo)
+ Test Files  13 passed (13)
+      Tests  58 passed (58)   (52 before the amends)
+
+## pnpm dev --port 8801 (request log only)
+[wrangler:info] Ready on http://localhost:8801
+[wrangler:info] GET /agents/klippy/sky/get-messages 200 OK (54ms)
+[wrangler:info] GET /agents/klippy/sky 101 Switching Protocols (58ms)
+[wrangler:info] GET /agents/klippy/sky/get-messages 200 OK (5ms)
+[wrangler:info] GET /agents/klippy/sky/get-messages 200 OK (6ms)
+[wrangler:info] GET /agents/klippy/sky/get-messages 200 OK (6ms)
+[wrangler:info] GET /agents/klippy/sky/get-messages 200 OK (8ms)
+[wrangler:info] GET /agents/klippy/sky/get-messages 200 OK (6ms)
+[wrangler:info] GET /agents/klippy/sky/get-messages 200 OK (8ms)
+[wrangler:info] GET /agents/klippy/sky/get-messages 200 OK (8ms)
+
+## printf "Should I take an umbrella in Dublin today, and what time is it there?\nWhat does https://example.com say?\nNow list my notes.\n" | KLIPPY_URL=http://localhost:8801 pnpm chat sky
+
+
+> agent@0.0.0 chat /home/ryan/code/klippy/apps/agent
+> tsx --env-file=.dev.vars scripts/chat.ts sky
+
+Talking to Klippy "sky" (0 messages so far). /clear to start over, Ctrl+D to quit.
+you> klippy> It's a clear sky and 11°C in Dublin right now, so you definitely don't need an umbrella. It's currently 11:56 PM in Dublin.
+you> klippy> The website explains that example.com is intended for use in documentation examples and notes that it's not meant to be used for actual testing or monitoring purposes.
+you> klippy> I don't have access to any of your personal notes or a notes system. As Klippy, I can help you with weather information, current time in different time zones, or reading content from web pages, but I cannot view or list any notes that might be stored elsewhere.
+you> 
+## The tool calls behind that chat (GET .../get-messages, summarised: role, then tool parts with input and state)
+user ['text']
+assistant [('tool-getWeather', {'place': 'Dublin'}, 'output-available'), ('tool-getTime', {'timeZone': 'Europe/Dublin'}, 'output-available'), 'text']
+user ['text']
+assistant [('tool-readLink', {'url': 'https://example.com'}, 'output-available'), 'text']
+user ['text']
+assistant ['text']
+
+## pnpm exec wrangler deploy --dry-run (apps/agent)
+Total Upload: 3676.63 KiB / gzip: 711.07 KiB
+
+## Amend smoke (2026-11-03): pnpm dev --port 8801, then (printf "What time is it in Tokyo?\n"; sleep 40) | pnpm chat amend7
+# A normal turn still streams through the new wrapper (Workers AI fallback answered):
+klippy> The current time in Tokyo is 10:19 AM on Wednesday, November 4, 2026.

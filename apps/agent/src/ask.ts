@@ -8,6 +8,9 @@ import { getWeather } from './tools/weather';
 // Long questions cost money and time. 2,000 characters is plenty for one question.
 export const MAX_QUESTION = 2000;
 
+// What Klippy says when the step cap stops it mid tool-call (the last step asked for a tool, so there's no text).
+export const OUT_OF_STEPS = 'Sorry, I ran out of steps before I could answer. Try asking one thing at a time.';
+
 // Every tool Klippy has. The notes tools need the database; readLink needs the question (it reads only its links).
 export function allTools(env: Env, question: string) {
 	return { getWeather, getTime, ...noteTools(env.DB), readLink: readLink(env, question) };
@@ -48,7 +51,7 @@ export async function ask(env: Env, question: string, tools: ToolSet = allTools(
 	});
 	// Which model answered: Claude, or the fallback.
 	// Stopped mid-way (the last step was still a tool call)? Then there's no text: say so instead of sending "".
-	const answer = text || "Sorry, I ran out of steps before I could answer. Try asking one thing at a time.";
+	const answer = text || OUT_OF_STEPS;
 	return { answer, model: providerMetadata?.cloudflare?.model };
 }
 
