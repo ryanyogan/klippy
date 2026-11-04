@@ -46,7 +46,10 @@ describe('POST /ask', () => {
 		fake.model = fakeModel('ok');
 		const headers = { Authorization: 'Bearer test-token', 'cf-connecting-ip': '203.0.113.7' };
 		const statuses = [];
-		for (let i = 0; i < 11; i++) statuses.push((await ask('{"question": "hi"}', headers)).status);
-		expect(statuses).toEqual([...Array(10).fill(200), 429]);
+		// The limiter counts in fixed 60-second windows, so a run that crosses a window
+		// boundary starts counting again. Send enough to hit the limit either way.
+		for (let i = 0; i < 25; i++) statuses.push((await ask('{"question": "hi"}', headers)).status);
+		expect(statuses.slice(0, 10)).toEqual(Array(10).fill(200));
+		expect(statuses).toContain(429);
 	});
 });
