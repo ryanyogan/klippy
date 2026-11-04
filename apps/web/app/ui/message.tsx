@@ -1,7 +1,7 @@
 // Adapted from AI Elements (Message), Copyright 2023 Vercel, Inc., Apache-2.0. See AI-ELEMENTS-LICENSE.txt.
 import type { Handle, RemixNode } from 'remix/component';
 import { isToolUIPart, type UIMessage } from 'ai';
-import { Sources } from './sources.tsx';
+import { type Source, Sources } from './sources.tsx';
 import { Tool, type ToolPart } from './tool.tsx';
 
 // One turn: yours on the right, Klippy's on the left. Text and tool cards in order, a "thinking" line, then sources.
@@ -31,16 +31,26 @@ export function Message(handle: Handle<{ message: UIMessage; actions?: (part: To
 					) : null,
 				)}
 				{thinking && <p class="message-thinking">Thinking…</p>}
-				<Sources urls={sourcesOf(message)} />
+				<Sources items={sourcesOf(message)} />
 			</li>
 		);
 	};
 }
 
-// The pages readLink read in this turn. Only http(s): a model-written "javascript:" link must never become an href.
-function sourcesOf(message: UIMessage) {
-	const urls = message.parts.flatMap((part) =>
-		part.type === 'tool-readLink' && part.state === 'output-available' ? [String((part.input as { url?: unknown }).url)] : [],
-	);
-	return [...new Set(urls)].filter((url) => /^https?:\/\//.test(url));
+// The pages readLink read and the passages searchNotes found, in this turn. A searchNotes passage is labelled with its
+// number, so "[1]" in the reply points at "[1] pip.md". Only http(s) becomes an href: a "javascript:" link never does.
+function sourcesOf(message: UIMessage): Source[] {
+	const items = message.parts.flatMap((part): Source[] => {
+		if (part.type === 'tool-readLink' && part.state === 'output-available') {
+			const url = String((part.input as { url?: unknown }).url);
+			return [{ label: url, href: url }];
+		}
+		if (part.type === 'tool-searchNotes' && part.state === 'output-available') {
+			const { results = [] } = part.output as { results?: { n: number; source: { title: string; url: string | null } }[] };
+			return results.map(({ n, source }) => ({ label: `[${n}] ${source.title}`, href: source.url ?? undefined }));
+		}
+		return [];
+	});
+	const unique = [...new Map(items.map((item) => [item.label, item])).values()];
+	return unique.map((item) => (item.href && /^https?:\/\//.test(item.href) ? item : { label: item.label }));
 }

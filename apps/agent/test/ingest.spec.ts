@@ -137,8 +137,8 @@ describe('ingest', () => {
 
 	it('saveLink is a private tool: not built once a page is in the chat, and locked after one is read', async () => {
 		await runInDurableObject(env.Klippy.getByName('lena'), async (klippy: Klippy) => {
-			expect(chatTools(klippy, env, 'save https://example.com/a', { pageRead: false }, true).saveLink).toBeUndefined();
-			const tools = chatTools(klippy, env, 'save https://example.com/a', { pageRead: true }, false);
+			expect(chatTools(klippy, env, 'save https://example.com/a', { pageRead: false, retrieved: false }, true).saveLink).toBeUndefined();
+			const tools = chatTools(klippy, env, 'save https://example.com/a', { pageRead: true, retrieved: false }, false);
 			await expect(tools.saveLink.execute!({ url: 'https://example.com/a' }, opts)).rejects.toThrow("can't run after reading a page");
 		});
 	});

@@ -10,6 +10,7 @@ import { MAX_NUDGES_PER_DAY, remindTools } from './tools/remind';
 import { getTime } from './tools/time';
 import { getWeather } from './tools/weather';
 import { saveLinkTool } from './tools/sources';
+import { searchNotesTool } from './tools/search';
 import { queueSource } from './ingest/sources';
 import { fileToMarkdown } from './ingest/file';
 import { hybridSearch } from './retrieval/search';
@@ -36,13 +37,17 @@ export class Klippy extends AIChatAgent {
 		const known = facts(this).map(({ id, fact }) => `${id}: ${fact}`);
 		// A web page could be giving orders. Once one is anywhere in the chat, this turn gets no private tools at all.
 		const pageInChat = this.messages.some((m) => m.parts.some((part) => part.type === 'tool-readLink'));
-		const turn = { pageRead: false }; // set the moment readLink runs in this turn
+		// Saved pages and files can give orders too. Once a search result is in the chat, no tools that write.
+		const retrievedInChat = this.messages.some((m) => m.parts.some((part) => part.type === 'tool-searchNotes'));
+		const turn = { pageRead: false, retrieved: false }; // set the moment readLink / searchNotes runs in this turn
 		// A nudge turn gets no tools at all (built empty, and none offered below), so a reminder can only speak.
-		const tools = nudged ? {} : chatTools(this, this.env, question, turn, pageInChat);
+		const tools = nudged ? {} : chatTools(this, this.env, question, turn, pageInChat, retrievedInChat);
 		const result = streamText({
 			model: model(this.env),
 			system: [
 				'You are Klippy, a friendly personal assistant. Answer in one or two sentences.',
+				"For questions about what the user saved, use searchNotes, answer only from its passages and cite them like [1].",
+				"If the passages don't answer the question, say \"That's not in your notes.\" and don't guess.",
 				'What you know about the user (id: fact):',
 				known.join('\n') || '(nothing yet)',
 			].join('\n'),
@@ -58,7 +63,9 @@ export class Klippy extends AIChatAgent {
 				const calls = steps.flatMap((step) => step.toolCalls);
 				// A web page could be giving orders. Once one is in the chat, no tools that read or write your data.
 				const restricted = pageInChat || calls.some((call) => call.toolName === 'readLink');
-				const activeTools = restricted ? SAFE : undefined;
+				// Saved content in the chat: reading tools only, nothing that writes (the retrieval cut).
+				const retrieved = retrievedInChat || calls.some((call) => call.toolName === 'searchNotes');
+				const activeTools = restricted ? SAFE : retrieved ? READ_ONLY : undefined;
 				// A stuck loop: the same tool with the same input twice. No more tools: answer with what you have.
 				// (The page rule still applies here, so this path can never hand back the private tools.)
 				const asked = calls.map((call) => `${call.toolName} ${JSON.stringify(call.input)}`);
@@ -136,9 +143,17 @@ export class Klippy extends AIChatAgent {
 // Each step is one model call. 8 is room for a few tools in one turn, and a hard cap on what a turn can cost.
 const MAX_STEPS = 8;
 
-// The tools for one turn. With a page in the chat, only the three safe ones. Otherwise the private ones too (notes,
-// memory, reminders), each locked so it refuses to run once readLink has run in this turn (afterPage).
-export function chatTools(agent: Klippy, env: Env, question: string, turn: { pageRead: boolean }, pageInChat: boolean): ToolSet {
+// The tools for one turn. With a page in the chat, only the three safe ones. Otherwise the private ones too: reading
+// (listNotes, searchNotes) and writing (notes, links, memory, reminders). Each is locked so it refuses to run once readLink
+// has run in this turn (afterPage); the writing ones also refuse once searchNotes has (saved content can give orders too).
+export function chatTools(
+	agent: Klippy,
+	env: Env,
+	question: string,
+	turn: { pageRead: boolean; retrieved: boolean },
+	pageInChat: boolean,
+	retrievedInChat = false,
+): ToolSet {
 	const link = readLink(env, question); // only the exact links in your latest message, no redirects (b-08)
 	const safe: ToolSet = {
 		getWeather,
@@ -153,12 +168,23 @@ export function chatTools(agent: Klippy, env: Env, question: string, turn: { pag
 	};
 	if (pageInChat) return safe;
 	const { saveNote, listNotes } = noteTools(env.DB);
-	return {
-		...safe,
-		...afterPage(turn, {
+	const search = searchNotesTool(env, agent.name);
+	const reading = afterPage(turn, {
+		listNotes,
+		searchNotes: {
+			...search,
+			execute: async (input: Parameters<NonNullable<typeof search.execute>>[0], opts: Parameters<NonNullable<typeof search.execute>>[1]) => {
+				turn.retrieved = true; // before the search: from here on this turn, nothing writes
+				return search.execute!(input, opts);
+			},
+		},
+	});
+	if (retrievedInChat) return { ...safe, ...reading };
+	const writing = afterPage(
+		turn,
+		{
 			...memoryTools(agent),
 			...remindTools(agent),
-			listNotes,
 			// Saving a note writes to your database, so Klippy asks you first. The turn pauses until you answer.
 			saveNote: {
 				...saveNote,
@@ -174,13 +200,16 @@ export function chatTools(agent: Klippy, env: Env, question: string, turn: { pag
 			},
 			// Saving a link also writes, and fetches a page later: it asks first too.
 			saveLink: tool({ ...saveLinkTool(agent, env, question), needsApproval: true }),
-		}),
-	};
+		},
+		true,
+	);
+	return { ...safe, ...reading, ...writing };
 }
 
-// Wrap the private tools (notes, memory) so they refuse to run once a page was read in this turn. prepareStep already
-// stops offering them; this is the lock behind it, in case a model calls a tool it wasn't offered.
-export function afterPage(turn: { pageRead: boolean }, tools: ToolSet): ToolSet {
+// Wrap private tools so they refuse to run once a page was read in this turn (and, for tools that write, once saved
+// content was retrieved). prepareStep already stops offering them; this is the lock behind it, in case a model calls a
+// tool it wasn't offered.
+export function afterPage(turn: { pageRead: boolean; retrieved?: boolean }, tools: ToolSet, writes = false): ToolSet {
 	return Object.fromEntries(
 		Object.entries(tools).map(([name, t]) => [
 			name,
@@ -188,6 +217,7 @@ export function afterPage(turn: { pageRead: boolean }, tools: ToolSet): ToolSet 
 				...t,
 				execute: async (input: unknown, opts: Parameters<NonNullable<typeof t.execute>>[1]) => {
 					if (turn.pageRead) throw new Error(`${name} can't run after reading a page.`);
+					if (writes && turn.retrieved) throw new Error(`${name} can't run after reading saved content.`);
 					return t.execute!(input, opts);
 				},
 			},
@@ -196,7 +226,9 @@ export function afterPage(turn: { pageRead: boolean }, tools: ToolSet): ToolSet 
 }
 
 // The tools that never touch your notes or memory: all Klippy may use once a web page is in the conversation.
-const SAFE: ('getWeather' | 'getTime' | 'readLink')[] = ['getWeather', 'getTime', 'readLink'];
+const SAFE: string[] = ['getWeather', 'getTime', 'readLink'];
+// Once saved content is in the conversation: the safe tools plus the ones that only read your data. Nothing writes.
+const READ_ONLY: string[] = [...SAFE, 'listNotes', 'searchNotes'];
 
 // A message nudge() added (a reminder firing), not one you typed.
 function isNudge(message: UIMessage | undefined) {

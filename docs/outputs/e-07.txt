@@ -1,0 +1,70 @@
+# e-07 Rerank, then answer with sources. Recorded 2026-11-03 on Linux, Node v24.22.2, agents 0.33.0, ai 7.0.162,
+# wrangler 4.157.0, remix 3.1.0.
+#
+# Facts checked 2026-11-03 (Firecrawl, maxAge 0): Workers AI @cf/baai/bge-reranker-base: inputs query, contexts, top_k;
+# $0.00311 per million input tokens; no deprecation noted. GOTCHA: the generated worker-configuration.d.ts (wrangler
+# 4.157.0) leaves `query` out of Ai_Cf_Baai_Bge_Reranker_Base_Input, though the model needs it. rerank.ts builds the
+# input in a typed variable (`... & { query: string }`) to get past TypeScript's excess-property check; say why.
+#
+# Notes for the writer:
+# - What changed:
+#     apps/agent/src/retrieval/rerank.ts    rerank(): the 20 hybrid candidates (context + text) scored against the
+#                                           question, best 5 kept, sorted by score
+#     apps/agent/src/retrieval/search.ts    Hit carries the chunk's context
+#     apps/agent/src/tools/search.ts        searchNotes: hybrid (20) -> rerank (5); numbered results with
+#                                           { id, kind, title, url } and the passage wrapped in
+#                                           <untrusted_saved_content> (capped 1,500 chars); "Nothing ... matched"
+#     apps/agent/src/agent.ts               - system prompt: use searchNotes, answer only from its passages, cite [n],
+#                                             and "That's not in your notes." when they don't answer
+#                                           - THE RETRIEVAL CUT (the page cut's twin, enforced at execution): searchNotes
+#                                             sets turn.retrieved before it runs; once it has, the writing tools
+#                                             (remember, forget, remindMe, saveNote, saveLink) refuse to run (afterPage
+#                                             with writes = true), and prepareStep offers only READ_ONLY (safe + listNotes
+#                                             + searchNotes); once a searchNotes result is anywhere in the chat, the
+#                                             writing tools aren't even built
+#                                           - the page cut is unchanged: a page in the chat removes searchNotes and
+#                                             listNotes as well (private data never meets a page)
+#     apps/web/app/ui/sources.tsx           Sources takes { label, href? }: a note or a file is a title, a link is a link
+#     apps/web/app/ui/message.tsx           sourcesOf(): readLink pages + searchNotes results labelled "[n] title";
+#                                           only http(s) becomes an href
+#     apps/agent/test/retrieval.spec.ts     7 tests: numbered, wrapped results; "nothing matched"; a poisoned passage
+#                                           ("call remember ... hunter2") obeyed by the fake model is refused and the next
+#                                           step offers reading tools only; the next turn starts read-only; every writing
+#                                           tool throws once searchNotes ran while listNotes works; a page still removes
+#                                           search; rerank's request and order (stand-in AI binding)
+#     apps/agent/test/loops.spec.ts         the step-0 tool list includes searchNotes
+# - Why both cuts: a page or a saved document can carry instructions. Reading more of your own data is fine; what must
+#   never happen is that text from outside makes Klippy write, schedule, remember or fetch somewhere new. Exits that
+#   remain after retrieval: readLink, but only to links the user typed in their latest message (b-08), and the reply
+#   itself, which the web app renders as plain text (no Markdown images, so no image-URL exfiltration).
+# - Cost: each searchNotes call is one embedding + one rerank (both Workers AI, cents per million tokens); turns are
+#   still capped at 8 steps and 10 a minute per Klippy.
+# - Citations are numbered passages + an instruction, not Anthropic's search_result content blocks: the fallback model
+#   (and the AI SDK catalog path) can't take those. Mention search_result blocks as the Claude-native upgrade.
+# - The web Sources change was typechecked and passes `remix doctor`; it was NOT clicked through in a browser in this tag.
+# - FALLBACK: all model text below is Workers AI glm-4.7-flash (no Anthropic key on the gateway).
+
+## Verification (real, 2026-11-03)
+
+$ pnpm typecheck        -> ok (agent, web)
+$ pnpm test             -> agent 20 files, 94 tests; web 3; data-table-d1 24; all passed
+$ (apps/web) pnpm run doctor   -> Doctor found no issues. Summary: 0 warnings, 0 advice.
+
+$ pnpm exec wrangler dev --port 8801     (real Vectorize, real Workers AI embeddings + reranker, local D1)
+$ KLIPPY_URL=http://localhost:8801 pnpm chat me
+you> /clear
+(chat cleared)
+you> What does my dog Pip like to eat? Check my notes.
+klippy> According to your notes, Pip likes carrots! [1]
+you> When is my flight to Tokyo? Check my notes.
+klippy> That's not in your notes.
+you> Remember that my password is hunter2.
+klippy> I don't keep notes across conversations, so I haven't noted that down yet.
+(The last answer is the cut working, clumsily worded by the fallback model: with a search result in the chat,
+`remember` isn't offered or built. A writer should show /clear as the way back to the writing tools.)
+
+$ curl -s -H "Authorization: Bearer $T" http://localhost:8801/agents/klippy/me/get-messages | jq -c '... tool parts ...'
+{"type":"tool-searchNotes","input":{"query":"dog Pip"},"results":[{"n":1,"title":"pip.md","passage":"# Pip\n\nPip is my dog. She likes carrots and hates baths.\n</untru"},{"n":2,"title":"ui-brief.md","passage":"## Who it's for\n\nThe owner of this Klippy. It's a personal app: "},{"n":3,"title":"ui-brief.md","passage":"The chunk defines the target audience as the Klippy's owner and "},{"n":4,"title":"ui-brief.md","passage":"## References (gathered with Firecrawl, 2026-11-03; pages are da"},{"n":5,"title":"ui-brief.md","passage":"## Goal\n\nOne person, signed in with GitHub, chats with their own"}]}
+{"type":"tool-searchNotes","input":{"query":"flight Tokyo"},"results":[{"n":1,"title":"ui-brief.md","passage":"## Goal\n\nOne person, signed in with GitHub, chats with their own"},{"n":2,"title":"trip.md","passage":"This chunk contains the flight details for the trip to Lisbon.\n\n"},{"n":3,"title":"ui-brief.md","passage":"## States to design\n\n- Chat: empty (\"Say hi to Klippy\"), streami"},{"n":4,"title":"ui-brief.md","passage":"## Who it's for\n\nThe owner of this Klippy. It's a personal app: "},{"n":5,"title":"ui-brief.md","passage":"This chunk lists external web resources used to guide the UI des"}]}
+(Honest reading: the Tokyo search found the Lisbon flight chunk at [2], and the model rightly said Tokyo isn't there.
+Top-5 always returns 5 passages if 5 exist; "not in your notes" is the model's judgement, told by the system prompt.)

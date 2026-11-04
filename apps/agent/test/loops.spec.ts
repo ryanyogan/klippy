@@ -56,7 +56,7 @@ describe('when loops go wrong', () => {
 		fake.model = fakeModel({ tool: 'readLink', input: { url: 'https://example.com/' } }, 'Done.', 'Hi again.');
 		const klippy = env.Klippy.getByName('quinn');
 		await klippy.saveMessages([say('m1', 'What does that page say?')]);
-		expect(toolsAt(0)).toEqual(['forget', 'getTime', 'getWeather', 'listNotes', 'readLink', 'remember', 'remindMe', 'saveLink', 'saveNote']);
+		expect(toolsAt(0)).toEqual(['forget', 'getTime', 'getWeather', 'listNotes', 'readLink', 'remember', 'remindMe', 'saveLink', 'saveNote', 'searchNotes']);
 		expect(toolsAt(1)).toEqual(['getTime', 'getWeather', 'readLink']);
 
 		// Next turn: the page is still in the conversation, so the private tools stay off.
@@ -74,14 +74,14 @@ describe('when loops go wrong', () => {
 
 	it('builds no private tools at all for a turn that starts with a page in the chat', async () => {
 		await runInDurableObject(env.Klippy.getByName('ivy'), async (klippy: Klippy) => {
-			const tools = chatTools(klippy, env, 'Hi', { pageRead: false }, true);
+			const tools = chatTools(klippy, env, 'Hi', { pageRead: false, retrieved: false }, true);
 			expect(Object.keys(tools).sort()).toEqual(['getTime', 'getWeather', 'readLink']);
 		});
 	});
 
 	it('locks the private tools the moment readLink runs, even if the model calls one it was not offered', async () => {
 		await runInDurableObject(env.Klippy.getByName('jo'), async (klippy: Klippy) => {
-			const turn = { pageRead: false };
+			const turn = { pageRead: false, retrieved: false };
 			const tools = chatTools(klippy, env, 'What does that page say?', turn, false);
 			const opts = { toolCallId: 'c1', messages: [], context: {} };
 			await expect(tools.listNotes.execute!({}, opts)).resolves.toHaveProperty('notes'); // before any page: fine

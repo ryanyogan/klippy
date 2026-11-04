@@ -14,7 +14,7 @@ export async function keywordSearch(d1: D1Database, owner: string, question: str
 	return results.map((row) => row.id);
 }
 
-export type Hit = { chunkId: number; sourceId: number; title: string; url: string | null; kind: string; text: string };
+export type Hit = { chunkId: number; sourceId: number; title: string; url: string | null; kind: string; context: string; text: string };
 
 // Hybrid search: keywords (exact names, codes, rare words) and meaning (paraphrases), merged by rank.
 export async function hybridSearch(env: Env, owner: string, question: string, limit = 10): Promise<Hit[]> {
@@ -29,7 +29,7 @@ export async function hydrate(d1: D1Database, owner: string, ids: number[]): Pro
 	if (ids.length === 0) return [];
 	const { results } = await d1
 		.prepare(
-			`SELECT c.id AS chunkId, s.id AS sourceId, s.title, s.url, s.kind, c.text FROM chunks c JOIN sources s ON s.id = c.source_id
+			`SELECT c.id AS chunkId, s.id AS sourceId, s.title, s.url, s.kind, c.context, c.text FROM chunks c JOIN sources s ON s.id = c.source_id
 			 WHERE c.owner = ? AND c.id IN (SELECT value FROM json_each(?))`,
 		)
 		.bind(owner, JSON.stringify(ids))
