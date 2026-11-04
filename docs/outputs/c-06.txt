@@ -1,0 +1,111 @@
+# c-06 Ask before you write. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, agents 0.33.0,
+# @cloudflare/ai-chat 0.12.2, ai 7.0.162.
+# MODEL: no Anthropic key on the gateway, so the Workers AI fallback (@cf/zai-org/glm-4.7-flash) answered.
+#
+# Notes for the writer:
+# - Server (small): the agent gets the notes tools from b-05 (D1, shared by every Klippy name: they're the owner's
+#   notes), and saveNote is wrapped as tool({ ...saveNote, needsApproval: true }). The turn pauses with the tool part in
+#   state "approval-requested"; nothing is written until the answer comes back. A "no" becomes state "output-denied",
+#   and the model is told (it gets a tool result saying so) and answers. /note (b-06) keeps the unwrapped saveNote.
+# - Client (most of the lesson): scripts/chat.ts now
+#   1. reads the history from the agent each turn (load()), instead of keeping its own copy;
+#   2. after each reply, looks for a part in state "approval-requested" (isToolUIPart, getToolName from ai) and asks
+#      "Allow? (y/n)";
+#   3. sends { type: "cf_agent_tool_approval", toolCallId, approved, autoContinue: true } (MessageType from
+#      @cloudflare/ai-chat/types) and prints the continuation: transport.expectToolContinuation(), then
+#      transport.reconnectToStream(); the server announces it with STREAM_PENDING / STREAM_RESUMING, which the script
+#      hands to the transport (handleStreamPending, handleStreamResuming, handleStreamResumeNone). In React,
+#      useAgentChat does all of this; the terminal does it by hand, which is the point of the lesson.
+#   4. passes the paused reply to readUIMessageStream({ stream, message }) so the continuation extends it. Found while
+#      recording: without `message`, the continuation's tool-output chunk names a tool call the new message doesn't
+#      have, the stream ends early, and the "Saved" sentence is never printed (the note IS saved).
+#   chat.ts is now 77 lines: split it over steps (approval check, the y/n, the continuation).
+# - The wording of the denied reply is the fallback model's ("I'm unable to save that note"); Claude would likely say
+#   you declined. The list at the end shows notes from earlier recordings (same local D1, ids 1-14).
+# - Tests (test/approval.spec.ts): the fake model calls saveNote; the turn pauses with no row in D1; the test answers
+#   over a real WebSocket (SELF.fetch with Upgrade + ?token=) with the same frame the script sends, then checks D1.
+#   Approve: row saved, part "output-available". Deny: no row, part "output-denied", and the model was called again.
+
+## Tests: pnpm exec vitest run test/approval.spec.ts --reporter=verbose
+
+ ✓ test/approval.spec.ts > saveNote asks first > saves nothing until you approve, then saves 145ms
+ ✓ test/approval.spec.ts > saveNote asks first > saves nothing when you say no, and the model is told 117ms
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+## pnpm test (whole repo)
+ Test Files  12 passed (12)
+      Tests  49 passed (49)
+
+## pnpm dev --port 8801 (request log only; the lee* and kim names are takes from debugging the continuation, see note 4)
+[wrangler:info] Ready on http://localhost:8801
+[wrangler:info] GET /agents/klippy/kim/get-messages 200 OK (41ms)
+[wrangler:info] GET /agents/klippy/kim 101 Switching Protocols (44ms)
+[wrangler:info] GET /agents/klippy/kim/get-messages 200 OK (6ms)
+[wrangler:info] GET /agents/klippy/kim/get-messages 200 OK (7ms)
+[wrangler:info] GET /agents/klippy/kim/get-messages 200 OK (8ms)
+[wrangler:info] GET /agents/klippy/kim/get-messages 200 OK (5ms)
+[wrangler:info] GET /agents/klippy/kim/get-messages 200 OK (6ms)
+[wrangler:info] GET /agents/klippy/kim/get-messages 200 OK (5ms)
+[wrangler:info] GET /agents/klippy/kim/get-messages 200 OK (5ms)
+[wrangler:info] GET /agents/klippy/lee/get-messages 200 OK (33ms)
+[wrangler:info] GET /agents/klippy/lee 101 Switching Protocols (36ms)
+[wrangler:info] GET /agents/klippy/lee/get-messages 200 OK (7ms)
+[wrangler:info] GET /agents/klippy/lee/get-messages 200 OK (6ms)
+[wrangler:info] GET /agents/klippy/lee/get-messages 200 OK (7ms)
+[wrangler:info] GET /agents/klippy/lee2/get-messages 200 OK (27ms)
+[wrangler:info] GET /agents/klippy/lee2 101 Switching Protocols (29ms)
+[wrangler:info] GET /agents/klippy/lee2/get-messages 200 OK (3ms)
+[wrangler:info] GET /agents/klippy/lee2/get-messages 200 OK (6ms)
+[wrangler:info] GET /agents/klippy/lee2/get-messages 200 OK (7ms)
+[wrangler:info] GET /agents/klippy/lee3/get-messages 200 OK (31ms)
+[wrangler:info] GET /agents/klippy/lee3 101 Switching Protocols (33ms)
+[wrangler:info] GET /agents/klippy/lee3/get-messages 200 OK (5ms)
+[wrangler:info] GET /agents/klippy/lee3/get-messages 200 OK (6ms)
+[wrangler:info] GET /agents/klippy/lee3/get-messages 200 OK (7ms)
+[wrangler:info] GET /agents/klippy/lee4/get-messages 200 OK (33ms)
+[wrangler:info] GET /agents/klippy/lee4 101 Switching Protocols (34ms)
+[wrangler:info] GET /agents/klippy/lee4/get-messages 200 OK (6ms)
+[wrangler:info] GET /agents/klippy/lee4/get-messages 200 OK (7ms)
+[wrangler:info] GET /agents/klippy/lee4/get-messages 200 OK (5ms)
+[wrangler:info] GET /agents/klippy/max/get-messages 200 OK (37ms)
+[wrangler:info] GET /agents/klippy/max 101 Switching Protocols (42ms)
+[wrangler:info] GET /agents/klippy/max/get-messages 200 OK (4ms)
+[wrangler:info] GET /agents/klippy/max/get-messages 200 OK (6ms)
+[wrangler:info] GET /agents/klippy/max/get-messages 200 OK (7ms)
+[wrangler:info] GET /agents/klippy/max/get-messages 200 OK (9ms)
+[wrangler:info] GET /agents/klippy/max/get-messages 200 OK (5ms)
+[wrangler:info] GET /agents/klippy/max/get-messages 200 OK (8ms)
+[wrangler:info] GET /agents/klippy/max/get-messages 200 OK (7ms)
+[wrangler:info] GET /agents/klippy/max/get-messages 200 OK (7ms)
+ ELIFECYCLE  Command failed.
+
+## printf "Save a note: buy oat milk.\ny\nSave a note: cancel my gym membership.\nn\nWhat notes do I have?\n" | KLIPPY_URL=http://localhost:8801 pnpm chat max
+# (piped input: the y and n answers do not echo after "Allow? (y/n)". The first was y, the second n.)
+
+
+> agent@0.0.0 chat /home/ryan/code/klippy/apps/agent
+> tsx --env-file=.dev.vars scripts/chat.ts max
+
+Talking to Klippy "max" (0 messages so far). /clear to start over, Ctrl+D to quit.
+you> klippy> 
+Klippy wants to use saveNote with {"body":"buy oat milk"}. Allow? (y/n) klippy> Done! I've saved your note: "buy oat milk" (ID: 14).
+you> klippy> 
+Klippy wants to use saveNote with {"body":"cancel my gym membership"}. Allow? (y/n) klippy> I'm unable to save that note—seems I can't add it at the moment. Would you like me to try saving it again, or would you prefer to handle this in a different way?
+you> klippy> You have 14 saved notes. Here are the most recent ones:
+
+- buy oat milk (ID: 14) - just saved
+- buy apples. (ID: 13)
+- buy eggs (ID: 12)
+- buy eggs (ID: 11)
+- buy bread (ID: 10)
+- buy oat milk (ID: 9)
+
+And the earlier ones include:
+- Pick up parcel from post office before Saturday noon (ref 4471)
+- Book dentist next Tuesday morning, Elm St
+- Call Sam about the bike Friday (after 5)
+- Various grocery items like oat milk, coffee beans, bin bags
+you> 
+## pnpm exec wrangler deploy --dry-run (apps/agent)
+Total Upload: 3675.72 KiB / gzip: 710.75 KiB

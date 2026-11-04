@@ -1,7 +1,7 @@
 import { MessageType } from '@cloudflare/ai-chat/types';
 import { WebSocketChatTransport } from 'agents/chat/transport';
 import { AgentClient } from 'agents/client';
-import { readUIMessageStream, type UIMessage } from 'ai';
+import { getToolName, isToolUIPart, readUIMessageStream, type UIMessage, type UIMessageChunk } from 'ai';
 import { createInterface } from 'node:readline/promises';
 
 // `pnpm chat alice` talks to the Klippy called "alice". KLIPPY_TOKEN comes from .dev.vars.
@@ -13,36 +13,65 @@ const token = process.env.KLIPPY_TOKEN ?? '';
 // in the query string (the Worker allows that only for the socket, and strips it before the agent sees it).
 const agent = new AgentClient({ agent: 'Klippy', name, host: url.host, protocol: url.protocol === 'https:' ? 'wss' : 'ws', query: { token } });
 const transport = new WebSocketChatTransport({ agent });
+// A reply that continues after you approve a tool is announced with STREAM_RESUMING: hand it to the transport.
+agent.addEventListener('message', (event) => {
+	const data = JSON.parse(String(event.data));
+	if (data.type === MessageType.CF_AGENT_STREAM_RESUMING) transport.handleStreamResuming(data);
+	if (data.type === MessageType.CF_AGENT_STREAM_RESUME_NONE) transport.handleStreamResumeNone(data);
+	if (data.type === MessageType.CF_AGENT_STREAM_PENDING) transport.handleStreamPending();
+});
 
-// Start from the conversation this Klippy already has (it lives in the agent, not here).
-const history = await fetch(new URL(`/agents/klippy/${name}/get-messages`, url), { headers: { Authorization: `Bearer ${token}` } });
-if (!history.ok) throw new Error(`Klippy said ${history.status}: is the Worker running, and is KLIPPY_TOKEN right?`);
-let messages: UIMessage[] = await history.json();
-console.log(`Talking to Klippy "${name}" (${messages.length} messages so far). /clear to start over, Ctrl+D to quit.`);
+// The conversation lives in the agent, not here: read it whenever we need it.
+async function load(): Promise<UIMessage[]> {
+	const response = await fetch(new URL(`/agents/klippy/${name}/get-messages`, url), { headers: { Authorization: `Bearer ${token}` } });
+	if (!response.ok) throw new Error(`Klippy said ${response.status}: is the Worker running, and is KLIPPY_TOKEN right?`);
+	return response.json();
+}
+
+// The reply arrives in chunks. Each step gives the whole message so far: print only what's new.
+// `message` is the reply being continued (after an approval), so its old text isn't printed twice.
+async function print(stream: ReadableStream<UIMessageChunk> | null, message?: UIMessage) {
+	if (!stream) return;
+	const textOf = (reply: UIMessage) => reply.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
+	let printed = message ? textOf(message).length : 0;
+	process.stdout.write('klippy> ');
+	for await (const reply of readUIMessageStream({ stream, message })) {
+		process.stdout.write(textOf(reply).slice(printed));
+		printed = textOf(reply).length;
+	}
+	process.stdout.write('\n');
+}
 
 const terminal = createInterface({ input: process.stdin, output: process.stdout });
-process.stdout.write('you> ');
-for await (const text of terminal) {
-	if (!text.trim()) { process.stdout.write('you> '); continue; }
+const lines = terminal[Symbol.asyncIterator]();
+async function ask(prompt: string) {
+	process.stdout.write(prompt);
+	const { value, done } = await lines.next();
+	return done ? undefined : String(value).trim();
+}
+
+let messages = await load();
+console.log(`Talking to Klippy "${name}" (${messages.length} messages so far). /clear to start over, Ctrl+D to quit.`);
+for (let text = await ask('you> '); text !== undefined; text = await ask('you> ')) {
+	if (!text) continue;
 	// "/clear" wipes this Klippy's chat history. What it remembered (c-05) stays.
-	if (text.trim() === '/clear') {
+	if (text === '/clear') {
 		agent.send(JSON.stringify({ type: MessageType.CF_AGENT_CHAT_CLEAR }));
-		messages = [];
-		process.stdout.write('(chat cleared)\nyou> ');
+		console.log('(chat cleared)');
 		continue;
 	}
-	messages = [...messages, { id: crypto.randomUUID(), role: 'user', parts: [{ type: 'text', text }] }];
-	const stream = await transport.sendMessages({ chatId: name, messages, trigger: 'submit-message', messageId: undefined, abortSignal: undefined });
-	// The reply arrives in chunks. Each step gives the whole message so far: print only what's new.
-	process.stdout.write('klippy> ');
-	let printed = 0;
-	let reply: UIMessage | undefined;
-	for await (reply of readUIMessageStream({ stream })) {
-		const text = reply.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
-		process.stdout.write(text.slice(printed));
-		printed = text.length;
+	messages = [...(await load()), { id: crypto.randomUUID(), role: 'user', parts: [{ type: 'text', text }] }];
+	await print(await transport.sendMessages({ chatId: name, messages, trigger: 'submit-message', messageId: undefined, abortSignal: undefined }));
+
+	// Did Klippy stop to ask before using a tool (needsApproval)? Then ask you, send the answer, and print the rest.
+	for (;;) {
+		const last = (await load()).at(-1);
+		const part = last?.parts.find((p) => isToolUIPart(p) && p.state === 'approval-requested');
+		if (!last || !part || !isToolUIPart(part)) break;
+		const approved = (await ask(`Klippy wants to use ${getToolName(part)} with ${JSON.stringify(part.input)}. Allow? (y/n) `)) === 'y';
+		transport.expectToolContinuation();
+		agent.send(JSON.stringify({ type: MessageType.CF_AGENT_TOOL_APPROVAL, toolCallId: part.toolCallId, approved, autoContinue: true }));
+		await print(await transport.reconnectToStream({ chatId: name }), last);
 	}
-	if (reply) messages = [...messages, reply];
-	process.stdout.write('\nyou> ');
 }
 agent.close();

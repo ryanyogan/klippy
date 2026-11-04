@@ -1,9 +1,10 @@
 import { AIChatAgent } from '@cloudflare/ai-chat';
-import { convertToModelMessages, isStepCount, streamText, type UIMessage } from 'ai';
+import { convertToModelMessages, isStepCount, streamText, tool, type UIMessage } from 'ai';
 import { MAX_QUESTION } from './ask';
 import { underLimit } from './guard';
 import { model } from './model';
 import { facts, memoryTools } from './tools/memory';
+import { noteTools } from './tools/notes';
 import { getTime } from './tools/time';
 import { getWeather } from './tools/weather';
 
@@ -23,6 +24,7 @@ export class Klippy extends AIChatAgent {
 			return new Response('Too many messages. Wait a minute.');
 		}
 		// Read the facts fresh every turn, so the model sees what it remembered a moment ago.
+		const { saveNote, listNotes } = noteTools(this.env.DB);
 		const known = facts(this).map(({ id, fact }) => `${id}: ${fact}`);
 		const result = streamText({
 			model: model(this.env),
@@ -34,7 +36,14 @@ export class Klippy extends AIChatAgent {
 			// The conversation so far, minus any message that was too long (it stays in the chat, but never reaches the model).
 			messages: await convertToModelMessages(this.messages.filter((m) => m.role !== 'user' || textOf(m).length <= MAX_QUESTION)),
 			maxOutputTokens: 300,
-			tools: { getWeather, getTime, ...memoryTools(this) },
+			tools: {
+				getWeather,
+				getTime,
+				...memoryTools(this),
+				listNotes,
+				// Saving a note writes to your database, so Klippy asks you first. The turn pauses until you answer.
+				saveNote: tool({ ...saveNote, needsApproval: true }),
+			},
 			stopWhen: isStepCount(3),
 			abortSignal: options?.abortSignal, // the client cancelled: stop paying for tokens
 		});
