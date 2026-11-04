@@ -1,4 +1,4 @@
-# Lane R handoff (2026-11-03, after c-09)
+# Lane R handoff (2026-11-03, after d-07)
 
 Lane R builds this repo, the reference for bits' build-along courses (bits `docs/plans/build-along.md`,
 decision 071). Read that plan (§1–§5, lane R in §7) and bits `docs/plans/build-along/s0.md` first.
@@ -38,12 +38,21 @@ the day. Tests never call a real model or the real internet. The repo stays loca
 | c-06 | 99ad5c4 | notes tools in the agent, `saveNote` with `needsApproval`; the terminal answers y/n (`cf_agent_tool_approval` + continuation stream) |
 | c-07 | fc5272c | `isStepCount(8)`, repeat-call guard (`toolChoice: 'none'`), readLink back; no notes/memory/reminder tools once a page is anywhere in the chat |
 | c-08 | 8e619d8 | `remindMe` → `schedule()` → `nudge()` → `saveMessages`; amended after security review: nudge turns get no tools, nudge messages carry `metadata.nudge` and never feed readLink's allowlist, 10 waiting / 20 fired per day |
-| c-09 | f4e67b7 | checkpoint: `TAG = 'c-09'`; local tour + check recorded; deploy dry-run only |
+| c-09 | (see `git log`) | checkpoint: `TAG = 'c-09'`; local tour + check recorded; deploy dry-run only |
+| d-01 | (see `git log`) | `AGENTS.md` (30 lines); a real `claude -p` run shows Claude Code loads it |
+| d-02 | | `skills-lock.json` (remix, cloudflare, agents-sdk, frontend-design via `npx skills@1.7.6`); `.claude/skills/` gitignored |
+| d-03 | | `.mcp.json`: context7, firecrawl (`${FIRECRAWL_API_KEY:-}`), cloudflare-docs (`https://docs.mcp.cloudflare.com/mcp`, not the plan's agents.cloudflare.com URL) |
+| d-04 | | `docs/ui-brief.md`; a real plan-mode review found 3 gaps, all closed |
+| d-05 | | `apps/web` (Worker `klippy-web`): routes/router/controllers, layout, **the one stylesheet**, `AGENT` service binding; `pnpm dev:web` = one wrangler process with both configs on 8802 |
+| d-06 | | GitHub sign-in (`remix/auth`, signed cookie session, `cop()`), allowlist **by numeric id** (`ALLOWED_GITHUB_IDS`, amended after review; `app/allowlist.test.ts` under `node --test`), agent name `gh-<id>`, `agentFetch` adds `KLIPPY_TOKEN` server-side |
+| d-07 | | `/notes`: list, search (`like`), delete (POST → 303) with `@klippy/db` + `data-table-d1` on the same D1; data-schema for q and id |
+
+c-07 was amended (2026-11-03, after two security reviews): the honest "ran out of steps" text when the 8-step cap stops a turn mid tool-call (`OUT_OF_STEPS` shared with /ask), and the page cut enforced three ways (no private tools built when a page is in the chat; prepareStep fail-closed; `afterPage()` makes notes/memory/remind tools throw once readLink ran in the turn). c-08 rebased: nudge turns build no tools at all. c-07…c-09 re-tagged; 58/64/64 tests.
 
 a-04 and a-05 were amended (and re-tagged) after two security reviews from the lead. The notes in
 `docs/outputs/a-04.txt` and `a-05.txt` tell the writer what to teach about them.
 
-Verified 2026-11-03: every tag from c-02 to c-09 passes install (frozen lockfile), typecheck, tests and
+Verified 2026-11-03: c-07, c-08, c-09 and d-01…d-07 pass frozen install, typecheck and tests in a clean worktree (d-07: agent 64 tests + web 3). d-05…d-07 smoked with `pnpm dev:web` on 8802 (curl; outputs in docs/outputs). Earlier: every tag from c-02 to c-09 passes install (frozen lockfile), typecheck, tests and
 `wrangler deploy --dry-run` in a clean worktree (c-09: 14 files, 57 tests). Every tag from c-03 to c-09 was smoked
 on 8801 with `wrangler dev` (curl, and `pnpm chat` from c-04). Before that: every tag from a-03 to b-09 passes typecheck and tests in a clean worktree
 (`git worktree add` + `pnpm install --frozen-lockfile`). a-02 has tests but no typecheck script yet, and
@@ -51,24 +60,51 @@ a-01 has no code. Every tag from a-04 to b-04 was smoked live on 8801 (outputs i
 
 ## Next
 
-1. **Pending recordings** (nothing below was faked; each output file says what's missing):
-   - c-02, the hand-written loop against Claude itself. Needs a real Anthropic API key:
-     ```sh
-     cd ~/code/klippy && git checkout c-02 && pnpm install --frozen-lockfile
-     cd apps/agent && echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .dev.vars
-     pnpm loop "What time is it right now?" 2>&1 | tee -a ../../docs/outputs/c-02.txt
-     git checkout master   # then commit the output on c-02's commit (amend + re-tag), as the other tags were
-     ```
-   - With Claude instead of the Workers AI fallback (after storing the Anthropic key on the `default` gateway, BYOK):
-     re-record a-04 … c-09. The c-course commands are in each `docs/outputs/c-0N.txt` heading (`pnpm dev --port 8801`
-     in one terminal, the `printf … | KLIPPY_URL=http://localhost:8801 pnpm chat <name>` line in another).
-   - Live deploys for a-05, b-09 and c-09 (commands at the top of those output files). The c-09 deploy creates the
-     Durable Object (migration v1).
-2. Course D (plan §3 D): the web front end over the agent. The S0 report has the island + service-binding shape.
-   `scripts/chat.ts` is the reference for the client protocol (history, approvals, continuations, server-driven turns).
-3. Known gap to decide: when the 8-step cap stops a chat turn mid tool-call, the reply has no text (c-07 notes).
+1. **Course D, d-08 … d-11** (plan §3 D; prompts follow bits `docs/plans/build-along/prompting-practices.md`; each
+   `docs/outputs/d-NN.txt` has: notes for the writer, the prompt, what to expect, review checklist, steer prompts,
+   real verification). Keep saying the code was written by the lane R agent against the prompt, not a recorded fresh
+   Claude Code run, unless you actually run `claude -p` (it works headless on this machine; d-01/d-02/d-04 did).
+   - d-08 AI Elements → Remix components + CSS (message, conversation, prompt input, tool card, sources) in
+     `apps/web/app/ui/`, server-rendered, keeping the Apache-2.0 notice (check vercel/ai-elements LICENSE first).
+     elements.ai-sdk.dev says it's "moving to shadcn/ui" (ui.shadcn.com/docs/ai-elements); ai-elements npm 1.9.1.
+     The stylesheet already has `.conversation`, `.message[data-from]`, `.tool`, `.prompt-input`, `.sources` classes.
+   - d-09 the chat island (S0 shape): `clientEntry('/assets/chat.js#Chat', …)`, esbuild `build:client` into
+     `public/assets` (gitignore it), `build.command` in wrangler.jsonc, `<script type="module" src="/assets/entry.js">`
+     in the layout, a `/chat` route that forwards the WebSocket upgrade through `agentFetch` (token added server-side;
+     the agent accepts the header on upgrades) to `/agents/klippy/gh-<id>`, history server-rendered from
+     get-messages, approve/deny buttons (`scripts/chat.ts` is the protocol reference: approvals, continuation,
+     server-driven turns). Add `agents` + `ai` to apps/web. Make the home page say when the agent call fails (d-07 gap).
+   - d-10 review and steer: `pnpm typecheck`, `remix doctor`, a refactor, maybe a review skill (P12).
+   - d-11 checkpoint: `TAG`, a web `/klippy/check` (public, rate limited) proxying the agent's check, dry-runs.
+2. **Pending recordings** (nothing faked; each output file says what's missing):
+   - d-03: approve the three project MCP servers in an interactive `claude`, then run the line at the end of d-03.txt.
+   - d-06/d-07: a live GitHub OAuth round trip (exact steps in d-06.txt). Needs a GitHub OAuth app (not created).
+   - c-02 live loop, Claude re-recordings and live deploys: as before (below).
+
+### Still pending from courses A–C
+
+- c-02, the hand-written loop against Claude itself. Needs a real Anthropic API key:
+  ```sh
+  cd ~/code/klippy && git checkout c-02 && pnpm install --frozen-lockfile
+  cd apps/agent && echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .dev.vars
+  pnpm loop "What time is it right now?" 2>&1 | tee -a ../../docs/outputs/c-02.txt
+  ```
+- Re-record a-04 … c-09 with Claude once a key is on the `default` gateway (BYOK). Live deploys for a-05, b-09, c-09.
 
 ## Gotchas
+
+- **Web local dev**: `pnpm dev:web` runs `wrangler dev --port 8802 -c wrangler.jsonc -c ../agent/wrangler.jsonc`
+  (one process, so AGENT resolves without the shared dev registry). Its local D1 lives under apps/web/.wrangler, not
+  the agent's: apply migrations there (`wrangler d1 migrations apply DB --local` in apps/web).
+- **apps/web/.dev.vars** (gitignored) has placeholder GitHub values, a random SESSION_SECRET, ALLOWED_GITHUB_IDS=1 and
+  the agent's KLIPPY_TOKEN. Signed-in pages were tested with a local-only cookie for id 1 (script not in the repo):
+  with `maxAge`, remix's session middleware stores `{"value": …, "expires": …}` inside the signed cookie.
+- **requireAuth narrowing**: as controller middleware it types `context.auth.identity`; as action middleware it doesn't.
+- `wrangler types --strict-vars=false` for apps/web (APP_ORIGIN, ALLOWED_GITHUB_IDS change per deploy).
+- Web tests: only `app/*.test.ts` under `node --test` (owner: no front-end tests; the allowlist test was asked for by
+  the coordinator). They're excluded from tsc (no Node types in the Worker tsconfig).
+- `cloudflare:workers` `env` is used at module scope in apps/web (cookie secret, GitHub provider).
+- Don't chain `;` after a failing python edit before `git commit --amend` (it happened once; no harm, but check).
 
 - **Tokens in URLs** (security review, c-03): the Authorization header everywhere; `?token=` only on the
   `Upgrade: websocket` request under `/agents/`, deleted from the URL before `routeAgentRequest`. Never log URLs.
