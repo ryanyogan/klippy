@@ -16,6 +16,7 @@
 	},
 	"dependencies": {
 		"@klippy/db": "workspace:*",
+		"ai": "7.0.162",
 		"data-table-d1": "workspace:*",
 		"remix": "3.1.0"
 	},

@@ -59,6 +59,9 @@ importers:
       '@klippy/db':
         specifier: workspace:*
         version: link:../../packages/db
+      ai:
+        specifier: 7.0.162
+        version: 7.0.162(zod@4.6.7)
       data-table-d1:
         specifier: workspace:*
         version: link:../../packages/data-table-d1
