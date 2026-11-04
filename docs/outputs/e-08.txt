@@ -1,0 +1,56 @@
+# e-08 Measure it. Recorded 2026-11-03 on Linux, Node v24.22.2, agents 0.33.0, wrangler 4.157.0,
+# @cloudflare/vitest-plugin 1.5.1, vitest 5.0.5.
+#
+# Notes for the writer:
+# - What changed:
+#     apps/agent/test/eval/corpus.ts          6 made-up documents (our own text) and 12 questions, each with the
+#                                             document that answers it. Learners replace them with their own
+#     apps/agent/test/eval/recall.ts          recallAt(k, results, answers)
+#     apps/agent/test/eval/retrieval.eval.ts  ingests the corpus under a fresh owner (eval-<time>): chunk, save, embed,
+#                                             upsert; waits for Vectorize to see them; then for each question records the
+#                                             top-5 titles from keywords only, vectors only, hybrid, hybrid + rerank;
+#                                             prints recall@5 (and recall@1 for the reranked list) and each question's top
+#                                             hit; deletes its vectors at the end; fails under 0.75
+#     apps/agent/vitest.eval.config.mts       same as vitest.config.mts but remoteBindings: true and only *.eval.ts
+#     apps/agent/package.json                 "eval:retrieval": "vitest run --config vitest.eval.config.mts"
+#     apps/agent/test/recall.spec.ts          a unit test for recallAt, so CI covers the arithmetic
+# - This is a measurement, not a test: it calls the real Workers AI embedding model and reranker and the real Vectorize
+#   index (`wrangler login` needed), costs a few cents' worth of calls at most, and is not in `pnpm test` or CI. No chat
+#   model is called (no contextual step: the numbers are the base pipeline).
+# - Honest reading of the numbers below: this corpus is too easy. Every method finds every answer in its top 5, so
+#   recall@5 can't tell them apart; recall@1 (0.92) shows the one miss ("undo a bad release" -> the rollback line is in
+#   work-notes.md, but the reranker put bike.md first). The lesson's point: measure on YOUR questions, make the set
+#   harder (paraphrases, exact codes like TP1337, near-duplicates) until the methods differ, then tune. Anthropic's
+#   "Demystifying evals for AI agents" is the source for "measure before tuning".
+# - --reporter=verbose shows the printed report; vitest's default reporter hides console output of passing tests here.
+
+## Verification (real, 2026-11-03)
+
+$ pnpm typecheck        -> ok
+$ pnpm exec vitest run  -> 21 files, 95 tests passed
+$ pnpm eval:retrieval --reporter=verbose
+⎔ Establishing remote connection...
+Using secrets defined in .dev.vars
+stdout | test/eval/retrieval.eval.ts > recall@5 over 12 questions
+keywords only               1.00
+vectors only                1.00
+hybrid                      1.00
+hybrid + rerank             1.00
+hybrid + rerank, recall@1   0.92
+ok   What vegetable does my dog like? -> pip.md
+ok   When are the vaccinations due for the dog? -> pip.md
+ok   What is the flight number to Portugal? -> lisbon-trip.md
+ok   Which tram should we take early? -> lisbon-trip.md
+ok   What pressure for the tyres? -> bike.md
+ok   How often should I oil the chain? -> bike.md
+ok   How much salt goes in the bread? -> sourdough.md
+ok   What temperature do I bake the loaf at? -> sourdough.md
+ok   When is the quarterly review? -> work-notes.md
+MISS How do we undo a bad release? -> bike.md
+ok   When can the tomatoes be planted outside? -> garden.md
+ok   How do I get rid of slugs? -> garden.md
+ ✓ test/eval/retrieval.eval.ts > recall@5 over 12 questions 13114ms
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  20:55:22
+   Duration  156.03s (tests 99%, transform 1%)

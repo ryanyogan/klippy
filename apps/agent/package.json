@@ -10,7 +10,8 @@
 		"test": "vitest run",
 		"cf-typegen": "wrangler types",
 		"typecheck": "tsc --noEmit && tsc --noEmit -p test",
-		"chat": "tsx --env-file=.dev.vars scripts/chat.ts"
+		"chat": "tsx --env-file=.dev.vars scripts/chat.ts",
+		"eval:retrieval": "vitest run --config vitest.eval.config.mts"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-plugin": "1.5.1",
