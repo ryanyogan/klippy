@@ -2,7 +2,7 @@
 // The index was created to match: wrangler vectorize create klippy-notes --dimensions=768 --metric=cosine
 export const EMBEDDING_MODEL = '@cf/baai/bge-base-en-v1.5';
 
-// Turn texts into vectors with Workers AI, up to 100 texts per call.
+// Turn texts into vectors with Workers AI (the model accepts a batch of texts per call).
 export async function embed(env: Env, texts: string[]): Promise<number[][]> {
 	const result = await env.AI.run(EMBEDDING_MODEL, { text: texts });
 	if (!('data' in result) || !result.data) throw new Error('No embeddings came back');
