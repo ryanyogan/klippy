@@ -1,0 +1,24 @@
+{
+  "name": "data-table-d1",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare D1 driver for remix/data-table (copied from the bits repo, MIT)",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "NODE_ENV=test remix test",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "remix": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "miniflare": "5.20261103.0-beta",
+    "remix": "3.1.0",
+    "typescript": "5.9.3"
+  }
+}
