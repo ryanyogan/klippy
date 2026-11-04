@@ -19,6 +19,11 @@ export function spend(agent: Klippy, tokens: number) {
 		ON CONFLICT (day) DO UPDATE SET tokens = tokens + ${tokens}`;
 }
 
+// A rough count for text the model hasn't seen yet: about 4 characters a token in English.
+export function estimateTokens(text: string) {
+	return Math.ceil(text.length / 4);
+}
+
 // The budget comes from a var in wrangler.jsonc, so you can change it without touching code.
 export function dailyBudget(env: Pick<Env, 'DAILY_TOKEN_BUDGET'>) {
 	return Number(env.DAILY_TOKEN_BUDGET) || 0;

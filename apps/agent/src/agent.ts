@@ -1,8 +1,9 @@
 import { AIChatAgent } from '@cloudflare/ai-chat';
 import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, isStepCount, streamText, tool, type ToolSet, type UIMessage } from 'ai';
 import { MAX_QUESTION, OUT_OF_STEPS } from './ask';
-import { dailyBudget, spend, tokensToday } from './budget';
+import { dailyBudget, estimateTokens, spend, tokensToday } from './budget';
 import { underLimit } from './guard';
+import { logRefused, logTurn } from './log';
 import { model } from './model';
 import { facts, memoryTools } from './tools/memory';
 import { readLink } from './tools/link';
@@ -24,18 +25,22 @@ export class Klippy extends AIChatAgent {
 
 	// Called for every new message. this.messages already holds it, and the whole conversation before it.
 	async onChatMessage(_onFinish: unknown, options?: { abortSignal?: AbortSignal }) {
+		const started = Date.now();
 		const question = lastQuestion(this.messages);
 		// A turn nudge() started: it only speaks. No tools at all, so a reminder can't fetch, write or schedule more.
 		const nudged = isNudge(this.messages.findLast((m) => m.role === 'user'));
 		// Same locks as /ask: a message of at most 2,000 characters, and at most 10 turns a minute per Klippy.
 		if (question.length > MAX_QUESTION) {
+			logRefused(this.name, 'too-long');
 			return new Response(`That message is over ${MAX_QUESTION} characters. Send a shorter one.`);
 		}
 		if (!(await underLimit(this.env, `chat:${this.name}`))) {
+			logRefused(this.name, 'rate-limit');
 			return new Response('Too many messages. Wait a minute.');
 		}
 		// The daily budget, checked BEFORE the model is called: a turn that can't afford it never starts.
 		if (tokensToday(this) >= dailyBudget(this.env)) {
+			logRefused(this.name, 'budget');
 			return new Response("I've used today's budget. Talk tomorrow (it resets at midnight UTC).");
 		}
 		// Read the facts fresh every turn, so the model sees what it remembered a moment ago.
@@ -47,18 +52,22 @@ export class Klippy extends AIChatAgent {
 		const turn = { pageRead: false, retrieved: false }; // set the moment readLink / searchNotes runs in this turn
 		// A nudge turn gets no tools at all (built empty, and none offered below), so a reminder can only speak.
 		const tools = nudged ? {} : chatTools(this, this.env, question, turn, pageInChat, retrievedInChat);
-		const result = streamText({
-			model: model(this.env, { route: 'chat', user: this.name }), // labelled with whose Klippy it is, in the gateway's logs
-			system: [
+		const system = [
 				'You are Klippy, a friendly personal assistant. Answer in one or two sentences.',
 				"For questions about what the user saved, use searchNotes, answer only from its passages and cite them like [1].",
 				"If the passages don't answer the question, say \"That's not in your notes.\" and don't guess.",
 				'What you know about the user (id: fact):',
 				known.join('\n') || '(nothing yet)',
-			].join('\n'),
-			// The conversation so far, minus any message that was too long (it stays in the chat, but never reaches the model).
-			messages: await convertToModelMessages(this.messages.filter((m) => m.role !== 'user' || textOf(m).length <= MAX_QUESTION)),
-			maxOutputTokens: 300,
+			].join('\n');
+		// The conversation so far, minus any message that was too long (it stays in the chat, but never reaches the model).
+		const messages = await convertToModelMessages(this.messages.filter((m) => m.role !== 'user' || textOf(m).length <= MAX_QUESTION));
+		// What one step may cost before the model reports it: the prompt (about 4 characters a token) plus the reply cap.
+		const reserve = estimateTokens(system + JSON.stringify(messages) + JSON.stringify(Object.entries(tools).map(([name, t]) => [name, t.description]))) + MAX_OUTPUT;
+		const result = streamText({
+			model: model(this.env, { route: 'chat', user: this.name }), // labelled with whose Klippy it is, in the gateway's logs
+			system,
+			messages,
+			maxOutputTokens: MAX_OUTPUT,
 			tools,
 			// Up to 8 steps per turn (each step is one model call), then stop, whatever happens.
 			stopWhen: isStepCount(MAX_STEPS),
@@ -78,8 +87,15 @@ export class Klippy extends AIChatAgent {
 				return { activeTools };
 			},
 			abortSignal: options?.abortSignal, // the client cancelled: stop paying for tokens
-			// When the turn ends (or pauses for your y/n), add what every step spent to today's total.
-			onFinish: ({ totalUsage }) => spend(this, totalUsage.totalTokens ?? 0),
+			// Charge every step, fail-closed (fixed in f-04: f-03 charged the whole turn in onFinish, which never runs for a turn
+			// that's cancelled or fails, so cancelling each turn just before its end kept the budget empty). A step is charged its
+			// estimate BEFORE the model is called, then corrected to the real count when it ends. A step that's cancelled or
+			// fails keeps its estimate: there's no way to spend tokens the budget hasn't seen.
+			onStepStart: () => spend(this, reserve),
+			onStepEnd: (step) => spend(this, (step.usage.totalTokens ?? 0) - reserve),
+			// Log the turn's shape as one JSON line when it ends, pauses for your y/n, or is cancelled (f-04).
+			onFinish: ({ steps }) => logTurn(this.name, started, steps),
+			onAbort: ({ steps }) => logTurn(this.name, started, steps, 'aborted'),
 		});
 		// Pass the reply through as it streams. If the cap stopped it mid tool-call, end with an honest sentence, as /ask does.
 		const stream = createUIMessageStream({
@@ -149,6 +165,8 @@ export class Klippy extends AIChatAgent {
 
 // Each step is one model call. 8 is room for a few tools in one turn, and a hard cap on what a turn can cost.
 const MAX_STEPS = 8;
+// The cap on each step's reply (see /ask): a hard limit on what one model call can write.
+const MAX_OUTPUT = 300;
 
 // The tools for one turn. With a page in the chat, only the three safe ones. Otherwise the private ones too: reading
 // (listNotes, searchNotes) and writing (notes, links, memory, reminders). Each is locked so it refuses to run once readLink

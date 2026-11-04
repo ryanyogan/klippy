@@ -33,20 +33,18 @@ export async function ask(env: Env, question: string, tools: ToolSet = allTools(
 		},
 		// Up to two rounds of tools (say the time, then the weather), then the answer. Then stop, whatever happens.
 		stopWhen: isStepCount(3),
-		// Log one line per step, so you can watch the round trip in the `pnpm dev` terminal.
+		// Log one line per step, so you can watch the round trip. Since f-04 it's the shape only: b-03's line also had the
+		// tool inputs, results and text, which is fine on your laptop and wrong in production logs (notes, pages, questions).
 		onStepEnd: (step) => {
-			console.log(
-				JSON.stringify({
-					step: step.stepNumber,
-					finish: step.finishReason, // "tool-calls": Claude wants a tool. "stop": it answered.
-					toolCalls: step.toolCalls.map((call) => ({ tool: call.toolName, input: call.input })),
-					toolResults: step.toolResults.map((result) => ({ tool: result.toolName, output: preview(result.output) })),
-					// A failed tool call (bad input, or a service that's down) goes back to Claude as an error.
-					toolErrors: step.content.flatMap((part) => (part.type === 'tool-error' ? [{ tool: part.toolName, error: String(part.error) }] : [])),
-					text: step.text,
-					tokens: step.usage.totalTokens,
-				}),
-			);
+			console.log({
+				event: 'ask.step',
+				step: step.stepNumber,
+				finish: step.finishReason, // "tool-calls": Claude wants a tool. "stop": it answered.
+				tools: step.toolCalls.map((call) => call.toolName), // names only
+				// A failed tool call (bad input, or a service that's down) goes back to Claude as an error. Count, not text.
+				toolErrors: step.content.filter((part) => part.type === 'tool-error').length,
+				tokens: step.usage.totalTokens,
+			});
 		},
 	});
 	// Which model answered: Claude, or the fallback.
@@ -56,8 +54,3 @@ export async function ask(env: Env, question: string, tools: ToolSet = allTools(
 	return { answer, model: providerMetadata?.cloudflare?.model, cache: providerMetadata?.cloudflare?.cacheStatus };
 }
 
-// A web page is thousands of characters: log the first 300, not the whole page.
-function preview(output: unknown) {
-	const text = JSON.stringify(output) ?? '';
-	return text.length <= 300 ? output : `${text.slice(0, 300)}…`;
-}

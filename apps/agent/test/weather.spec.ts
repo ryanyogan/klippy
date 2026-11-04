@@ -47,12 +47,13 @@ describe('getWeather', () => {
 		fake.model = fakeModel({ tool: 'getWeather', input: { place: 'Berlin' } }, 'Cloudy, 5.6°C.');
 
 		await ask('What is the weather in Berlin?');
-		const steps = log.mock.calls.map(([line]) => JSON.parse(line));
-		expect(steps).toMatchObject([
-			{ step: 0, finish: 'tool-calls', toolCalls: [{ tool: 'getWeather', input: { place: 'Berlin' } }] },
-			{ step: 1, finish: 'stop', toolCalls: [], text: 'Cloudy, 5.6°C.' },
+		const steps = log.mock.calls.map(([line]) => line);
+		expect(steps).toEqual([
+			{ event: 'ask.step', step: 0, finish: 'tool-calls', tools: ['getWeather'], toolErrors: 0, tokens: 15 },
+			{ event: 'ask.step', step: 1, finish: 'stop', tools: [], toolErrors: 0, tokens: 15 },
 		]);
-		expect(steps[0].toolResults[0].output).toMatchObject({ place: 'Berlin, Germany', temperatureC: 5.6 });
+		// The shape only: never the place asked about, the weather that came back, or the answer (f-04).
+		expect(JSON.stringify(steps)).not.toMatch(/Berlin|5\.6|Cloudy/);
 	});
 
 	it('says so when the place does not exist', async () => {

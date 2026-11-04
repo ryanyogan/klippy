@@ -1,0 +1,72 @@
+# f-04 Logs you can query. Recorded 2026-11-03 on Linux, Node v24.22.2, agents 0.33.0, ai 7.0.162, wrangler 4.157.0
+# (versions checked with `npm view` the same day).
+#
+# Notes for the writer:
+# - SECURITY FIX FORWARD (f-03's budget, from the lead's security review): f-03 charged the daily budget only in
+#   streamText's onFinish. onFinish never runs for a turn that's cancelled or fails, so a client that cancelled every
+#   turn just before it ended spent tokens the budget never saw. Now (apps/agent/src/agent.ts):
+#     onStepStart  charges an ESTIMATE before each model call: the prompt (system + messages + tool descriptions, about
+#                  4 characters a token, estimateTokens in budget.ts) plus the 300-token reply cap (MAX_OUTPUT)
+#     onStepEnd    corrects it to the real count: spend(step.usage.totalTokens - estimate)
+#     onFinish     no longer charges anything (no double count); the check before each turn is unchanged (fail-closed:
+#                  refuse once today's total >= the budget)
+#   Why the estimate and not just "charge in onStepEnd" (the review's simplest fix): per-step charging alone still loses
+#   the step that's cancelled, and a one-step turn is all one step, so cancelling every reply just before its end would
+#   still dodge the budget. Holding an estimate until the step reports closes that: a cancelled or failed step keeps it.
+#   Tests (test/budget.spec.ts): a turn cancelled on step 2 pays step 1's real 15 tokens plus step 2's estimate; a turn
+#   cancelled on step 1 pays at least the 300 reply cap. Both FAIL on f-03's code (checked by swapping it back: 2 failed)
+#   and pass now. The f-03 page should point here: "never charge only at the end".
+# - What changed for f-04 itself:
+#     apps/agent/src/log.ts      logTurn: one object per chat turn, logged with console.log({...}) so Workers Logs indexes
+#                                every field: event "turn", agent, steps, finish ("aborted" when cancelled), tools (names
+#                                only), toolErrors (a count), tokens { input, output, cached, total }, model, ms.
+#                                logRefused: event "turn.refused", agent, reason too-long | rate-limit | budget.
+#     apps/agent/src/agent.ts    logs on onFinish and onAbort, and before each refusal
+#     apps/agent/src/ask.ts      /ask's per-step line (b-03) is now shape only: event "ask.step", step, finish, tool names,
+#                                error count, tokens. b-03 logged tool inputs, results (a page preview) and the answer text:
+#                                good for learning on a laptop, wrong in production logs. Say so on the b-03 page too.
+#     apps/agent/test/log.spec.ts   the shape; that the question, tool input and answer never appear; a refusal line
+#     apps/agent/test/weather.spec.ts   the /ask step lines, and that the place and weather never appear
+# - FACTS CHECKED (2026-11-03, maxAge 0): Workers Logs "automatically extracts the fields and indexes them" from JSON logs
+#   (console.log({ user_id: 123 }) is filterable on user_id); retention 7 days; 256 KB per log; head_sampling_rate default 1.
+#   Query Builder: visualizations (Count, Sum, P90 ...), Filter / Group By / Order By / Limit, and "Save Query" saves a
+#   named query at the account level, with a URL to share.
+# - THE SAVED QUERY (to make in the dashboard after a deploy; NOT made, the agent isn't deployed): Workers & Pages ->
+#   klippy -> Observability -> Overview. Filter: event equals turn. Visualizations: Count; Sum of tokens.total; P90 of ms.
+#   Group By: agent. Order By: Sum tokens.total desc. Save Query as "Klippy: tokens per user". A second one worth saving:
+#   Filter event equals turn.refused, Count, Group By reason ("Klippy: refused turns").
+# - What we could run today: wrangler dev's local observability API (POST /cdn-cgi/local/explorer/api/local/observability/
+#   query, read-only SQL over the logs and spans wrangler dev captured; wrangler 4.157.0 prints it at startup). The same
+#   questions as the saved query, in SQL, are below. The lesson can use it as the local stand-in.
+# - FOUND WHILE RECORDING (say it in the lesson): the invocation log for pnpm chat's WebSocket records the full URL,
+#   including ?token=..., because the platform logs the request before our code strips the token (we redacted it below).
+#   That's the c-03 rule ("a URL ends up in logs") seen for real. Since f-01 the deployed agent never gets ?token= (the
+#   web app sends the Authorization header over the service binding), so it only happens with `pnpm chat` locally.
+# - FALLBACK: replies below are glm-4.7-flash (no Anthropic key), so "model" in the log lines is the fallback and
+#   "cached" is 0. The second reply's time is the real local time the getTime tool returned.
+
+## Verification (real, 2026-11-03)
+
+$ pnpm typecheck        -> ok (agent, web)
+$ pnpm test             -> agent 24 files, 106 tests; web 3; data-table-d1 24; all passed
+$ (apps/agent) pnpm exec wrangler deploy --dry-run   -> Total Upload: 4080.43 KiB / gzip: 783.39 KiB
+
+$ pnpm exec wrangler dev --port 8801
+$ KLIPPY_URL=http://localhost:8801 pnpm chat f04-logs-28742
+Talking to Klippy "f04-logs-28742" (0 messages so far). /clear to start over, Ctrl+D to quit.
+you> klippy> Hi there! I've noted your secret word "swordfish." How can I help you today?
+you> klippy> It's 3:26 AM on Wednesday, November 4, 2026 in Lisbon.
+you> 
+
+$ curl -s -X POST localhost:8801/cdn-cgi/local/explorer/api/local/observability/query -d '{"sql": "SELECT message FROM logs WHERE json_extract(message, '$[0].event') = 'turn' AND json_extract(message, '$[0].agent') = 'f04-logs-28742' ORDER BY ts_ms"}'
+['message']
+['[{"event":"turn","agent":"f04-logs-28742","steps":2,"finish":"stop","tools":["remember"],"toolErrors":0,"tokens":{"input":3442,"output":35,"cached":0,"total":3477},"model":"@cf/zai-org/glm-4.7-flash","ms":7206}]']
+['[{"event":"turn","agent":"f04-logs-28742","steps":2,"finish":"stop","tools":["getTime"],"toolErrors":0,"tokens":{"input":3605,"output":35,"cached":0,"total":3640},"model":"@cf/zai-org/glm-4.7-flash","ms":2476}]']
+
+$ curl -s -X POST localhost:8801/cdn-cgi/local/explorer/api/local/observability/query -d '{"sql": "SELECT json_extract(message, '$[0].agent') AS agent, count(*) AS turns, sum(json_extract(message, '$[0].tokens.total')) AS tokens, max(json_extract(message, '$[0].ms')) AS slowest_ms FROM logs WHERE json_extract(message, '$[0].event') = 'turn' GROUP BY agent ORDER BY tokens DESC"}'
+['agent', 'turns', 'tokens', 'slowest_ms']
+['f04-logs-28742', 2, 7117, 7206]
+
+$ curl -s -X POST localhost:8801/cdn-cgi/local/explorer/api/local/observability/query -d '{"sql": "SELECT count(*) AS lines_with_the_secret FROM logs WHERE message LIKE '%swordfish%'"}'
+['lines_with_the_secret']
+[0]
