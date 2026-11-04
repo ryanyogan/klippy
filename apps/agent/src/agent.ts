@@ -6,6 +6,7 @@ import { model } from './model';
 import { facts, memoryTools } from './tools/memory';
 import { readLink } from './tools/link';
 import { noteTools } from './tools/notes';
+import { MAX_NUDGES_PER_DAY, remindTools } from './tools/remind';
 import { getTime } from './tools/time';
 import { getWeather } from './tools/weather';
 
@@ -17,8 +18,9 @@ export class Klippy extends AIChatAgent {
 
 	// Called for every new message. this.messages already holds it, and the whole conversation before it.
 	async onChatMessage(_onFinish: unknown, options?: { abortSignal?: AbortSignal }) {
-		// Your latest message. (After you approve a tool, the turn continues, and the last message is Klippy's.)
-		const question = textOf(this.messages.findLast((m) => m.role === 'user'));
+		const question = lastQuestion(this.messages);
+		// A turn nudge() started: it only speaks. No tools at all, so a reminder can't fetch, write or schedule more.
+		const nudged = isNudge(this.messages.findLast((m) => m.role === 'user'));
 		// Same locks as /ask: a message of at most 2,000 characters, and at most 10 turns a minute per Klippy.
 		if (question.length > MAX_QUESTION) {
 			return new Response(`That message is over ${MAX_QUESTION} characters. Send a shorter one.`);
@@ -31,7 +33,8 @@ export class Klippy extends AIChatAgent {
 		// A web page could be giving orders. Once one is anywhere in the chat, this turn gets no private tools at all.
 		const pageInChat = this.messages.some((m) => m.parts.some((part) => part.type === 'tool-readLink'));
 		const turn = { pageRead: false }; // set the moment readLink runs in this turn
-		const tools = chatTools(this, this.env, question, turn, pageInChat);
+		// A nudge turn gets no tools at all (built empty, and none offered below), so a reminder can only speak.
+		const tools = nudged ? {} : chatTools(this, this.env, question, turn, pageInChat);
 		const result = streamText({
 			model: model(this.env),
 			system: [
@@ -47,6 +50,7 @@ export class Klippy extends AIChatAgent {
 			stopWhen: isStepCount(MAX_STEPS),
 			// Before each step, look at the steps so far.
 			prepareStep: ({ steps }) => {
+				if (nudged) return { activeTools: [] };
 				const calls = steps.flatMap((step) => step.toolCalls);
 				// A web page could be giving orders. Once one is in the chat, no tools that read or write your data.
 				const restricted = pageInChat || calls.some((call) => call.toolName === 'readLink');
@@ -76,6 +80,27 @@ export class Klippy extends AIChatAgent {
 		});
 		return createUIMessageStreamResponse({ stream });
 	}
+
+	// A reminder is due (see remindMe). Nobody sent a message: Klippy starts the turn itself.
+	async nudge({ message }: { message: string }) {
+		// Wait for any reply in progress, or a question waiting for your answer. Still busy? Try again in a minute.
+		if (!(await this.waitUntilStable({ timeout: 30_000 }))) {
+			await this.schedule(60, 'nudge', { message });
+			return;
+		}
+		// However many were scheduled, at most 20 reminders speak per day (UTC), per Klippy.
+		this.sql`CREATE TABLE IF NOT EXISTS nudges (day TEXT PRIMARY KEY, fired INTEGER NOT NULL)`;
+		const day = new Date().toISOString().slice(0, 10);
+		const [{ fired }] = this.sql<{ fired: number }>`INSERT INTO nudges (day, fired) VALUES (${day}, 1)
+			ON CONFLICT (day) DO UPDATE SET fired = fired + 1 RETURNING fired`;
+		if (fired > MAX_NUDGES_PER_DAY) return;
+		// saveMessages adds a message and runs onChatMessage, just as if it came from you. Open clients see the reply.
+		await this.saveMessages((messages) => [
+			...messages,
+			// metadata.nudge marks it as Klippy's own message: its text never counts as something you typed.
+			{ id: crypto.randomUUID(), role: 'user', metadata: { nudge: true }, parts: [{ type: 'text', text: `A reminder you scheduled for me is due now: "${message}". Tell me in one short sentence. Don't schedule anything.` }] },
+		]);
+	}
 }
 
 // Each step is one model call. 8 is room for a few tools in one turn, and a hard cap on what a turn can cost.
@@ -102,6 +127,7 @@ export function chatTools(agent: Klippy, env: Env, question: string, turn: { pag
 		...safe,
 		...afterPage(turn, {
 			...memoryTools(agent),
+			...remindTools(agent),
 			listNotes,
 			// Saving a note writes to your database, so Klippy asks you first. The turn pauses until you answer.
 			saveNote: tool({ ...saveNote, needsApproval: true }),
@@ -128,6 +154,17 @@ export function afterPage(turn: { pageRead: boolean }, tools: ToolSet): ToolSet 
 
 // The tools that never touch your notes or memory: all Klippy may use once a web page is in the conversation.
 const SAFE: ('getWeather' | 'getTime' | 'readLink')[] = ['getWeather', 'getTime', 'readLink'];
+
+// A message nudge() added (a reminder firing), not one you typed.
+function isNudge(message: UIMessage | undefined) {
+	return (message?.metadata as { nudge?: boolean } | undefined)?.nudge === true;
+}
+
+// Your latest message: the last one you typed (after an approval, the turn continues with Klippy's message last,
+// and a reminder's message is Klippy's own). readLink may open only the links in it.
+export function lastQuestion(messages: UIMessage[]) {
+	return textOf(messages.findLast((m) => m.role === 'user' && !isNudge(m)));
+}
 
 // The text of a chat message (its other parts are tool calls and the like).
 function textOf(message: UIMessage | undefined) {

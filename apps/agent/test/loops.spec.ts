@@ -56,7 +56,7 @@ describe('when loops go wrong', () => {
 		fake.model = fakeModel({ tool: 'readLink', input: { url: 'https://example.com/' } }, 'Done.', 'Hi again.');
 		const klippy = env.Klippy.getByName('quinn');
 		await klippy.saveMessages([say('m1', 'What does that page say?')]);
-		expect(toolsAt(0)).toEqual(['forget', 'getTime', 'getWeather', 'listNotes', 'readLink', 'remember', 'saveNote']);
+		expect(toolsAt(0)).toEqual(['forget', 'getTime', 'getWeather', 'listNotes', 'readLink', 'remember', 'remindMe', 'saveNote']);
 		expect(toolsAt(1)).toEqual(['getTime', 'getWeather', 'readLink']);
 
 		// Next turn: the page is still in the conversation, so the private tools stay off.
@@ -88,7 +88,7 @@ describe('when loops go wrong', () => {
 			// A link that isn't in the message is refused, but the attempt alone locks the private tools.
 			await expect(tools.readLink.execute!({ url: 'https://evil.example/' }, opts)).rejects.toThrow();
 			expect(turn.pageRead).toBe(true);
-			for (const name of ['listNotes', 'saveNote', 'remember', 'forget']) {
+			for (const name of ['listNotes', 'saveNote', 'remember', 'forget', 'remindMe']) {
 				await expect(tools[name].execute!({ body: 'x', fact: 'x', id: 1 }, opts)).rejects.toThrow("can't run after reading a page");
 			}
 		});

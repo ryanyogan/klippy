@@ -1,0 +1,84 @@
+# c-08 Klippy nudges you. Recorded 2026-11-03 (UTC 2026-11-04 00:59-01:12) on Linux, Node v24.22.2, wrangler 4.157.0,
+# agents 0.33.0, @cloudflare/ai-chat 0.12.2, ai 7.0.162.
+# MODEL: no Anthropic key on the gateway, so the Workers AI fallback (@cf/zai-org/glm-4.7-flash) answered.
+#
+# Notes for the writer:
+# - Server: src/tools/remind.ts, remindMe { minutes 1..10080, message ≤ 200 chars }: this.schedule(minutes * 60,
+#   'nudge', { message }) (stored in the agent's SQLite, woken by a Durable Object alarm). Klippy.nudge():
+#   waitUntilStable (no turn or approval in progress; if still busy after 30 s, it reschedules itself a minute later
+#   instead of dropping the reminder), then saveMessages((messages) => [...messages, a user-role message with
+#   metadata { nudge: true }]) runs onChatMessage as if a message had arrived. The fired turn passes the same locks.
+# - Security review (amended into this tag): a reminder's text is written by the model, so a nudge turn is locked
+#   down: prepareStep gives it activeTools [] (it can only speak: no readLink, notes, memory or remindMe, so a
+#   reminder can't schedule another one or act on a page's orders); lastQuestion() skips nudge messages, so a link
+#   planted in a reminder never joins readLink's allowlist; at most 10 reminders wait (listSchedules) and at most 20
+#   fire per day per Klippy (a `nudges` table counted in nudge()). remindMe is also off once a page is in the chat.
+# - Rebased on the c-07 amend (2026-11-03): a nudge turn now builds no tools at all (`nudged ? {} : chatTools(...)`)
+#   as well as offering none (activeTools []), so a forced call has nothing to run (new test: output-error).
+#   remindMe sits with the private tools in chatTools: not built with a page in the chat, and locked by afterPage
+#   once readLink runs in the turn.
+# - The plan said "Remind me at 6pm"; the tool takes minutes from now so the model never parses dates. For a clock
+#   time it calls getTime first and works out the minutes (its description says so). Recorded with "in one minute"
+#   so the take is short.
+# - Client: scripts/chat.ts prints replies to turns it didn't start: on CF_AGENT_CHAT_MESSAGES (the broadcast after a
+#   turn is saved), if the last message is an assistant reply it hasn't shown (a Set of seen ids, filled from history
+#   and from every streamed reply), it prints it. Now 86 lines.
+# - The wording of the injected message took three takes with the fallback model, before the lock-down (names una,
+#   vic, wren in an earlier dev log, not shown):
+#   1. "[Reminder you scheduled: Drink some water] Remind me now, in one sentence." -> "I'll remind you in one sentence
+#      as scheduled!";
+#   2. "It's time for the reminder I asked you to set: "...". Remind me now." -> "I can't set an immediate reminder, but
+#      ... drink that water now!";
+#   3. 'A reminder you scheduled for me is due now: "...". Tell me in one short sentence. Don't schedule anything.'
+#      -> "Here's a one short sentence: Drink some water to stay hydrated. (I did not schedule anything.)"
+#   Wording 3 is in the code. The take below (name xia) is after the lock-down. Teach: the injected message is a
+#   prompt too.
+# - The alarm fired about 60 s after the request, on local `wrangler dev` (no deploy needed to see it).
+# - Tests (test/remind.spec.ts): the fake model calls remindMe; listSchedules shows the task with callback "nudge";
+#   the test calls nudge() directly (runInDurableObject) instead of waiting; the reply shows up, and that model call
+#   had no tools. lastQuestion ignores a nudge's planted link. An 11th waiting reminder is refused. With 20 already
+#   fired today, a nudge makes no model call. A request over a week ahead fails zod and schedules nothing.
+
+## Tests: pnpm exec vitest run test/remind.spec.ts --reporter=verbose
+
+ ✓ test/remind.spec.ts > Klippy nudges you > schedules a reminder, then starts a turn on its own when it is due 73ms
+ ✓ test/remind.spec.ts > Klippy nudges you > refuses a tool the model forces in a reminder turn: none were even built (rebase)
+ ✓ test/remind.spec.ts > Klippy nudges you > never treats a reminder's text as something you typed 0ms
+ ✓ test/remind.spec.ts > Klippy nudges you > refuses an 11th waiting reminder 10ms
+ ✓ test/remind.spec.ts > Klippy nudges you > lets at most 20 reminders speak per day 24ms
+ ✓ test/remind.spec.ts > Klippy nudges you > refuses a reminder more than a week ahead 23ms
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+
+## pnpm test (whole repo)
+ Test Files  14 passed (14)
+      Tests  64 passed (64)   (57 before the c-07 amends and the rebase)
+
+## pnpm dev --port 8801 (request log only)
+[wrangler:info] Ready on http://localhost:8801
+[wrangler:info] GET /agents/klippy/xia/get-messages 200 OK (39ms)
+[wrangler:info] GET /agents/klippy/xia 101 Switching Protocols (41ms)
+[wrangler:info] GET /agents/klippy/xia/get-messages 200 OK (4ms)
+[wrangler:info] GET /agents/klippy/xia/get-messages 200 OK (11ms)
+[wrangler:info] GET /agents/klippy/xia/get-messages 200 OK (7ms)
+
+## (printf "Remind me in one minute to drink some water.\n"; sleep 110) | KLIPPY_URL=http://localhost:8801 pnpm chat xia
+# Started 01:10:38 UTC, ended 01:12:28 UTC. The second "klippy>" line arrived on its own, with no input, about a minute in.
+
+
+> agent@0.0.0 chat /home/ryan/code/klippy/apps/agent
+> tsx --env-file=.dev.vars scripts/chat.ts xia
+
+Talking to Klippy "xia" (0 messages so far). /clear to start over, Ctrl+D to quit.
+you> klippy> You'll get a reminder in 1 minute to drink some water.
+you> 
+klippy> It's time to drink some water.
+you> 
+## The stored conversation (GET .../get-messages, summarised: role, metadata, parts). The reminder message carries {nudge: true}.
+user None ['Remind me in one minute to drink some water.']
+assistant None [('tool-remindMe', {'minutes': 1, 'message': 'Drink some water'}), "You'll get a reminder in 1 minute to drink some water."]
+user {'nudge': True} ['A reminder you scheduled for me is due now: "Drink some water". Tell me in one short sentence. Don\'t schedule anything.']
+assistant None ["It's time to drink some water."]
+
+## pnpm exec wrangler deploy --dry-run (apps/agent)
+Total Upload: 3679.00 KiB / gzip: 711.84 KiB

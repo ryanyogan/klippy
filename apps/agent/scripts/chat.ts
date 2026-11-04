@@ -13,12 +13,20 @@ const token = process.env.KLIPPY_TOKEN ?? '';
 // in the query string (the Worker allows that only for the socket, and strips it before the agent sees it).
 const agent = new AgentClient({ agent: 'Klippy', name, host: url.host, protocol: url.protocol === 'https:' ? 'wss' : 'ws', query: { token } });
 const transport = new WebSocketChatTransport({ agent });
+const seen = new Set<string>(); // the replies already on screen
+const textOf = (reply: UIMessage) => reply.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
 // A reply that continues after you approve a tool is announced with STREAM_RESUMING: hand it to the transport.
 agent.addEventListener('message', (event) => {
 	const data = JSON.parse(String(event.data));
 	if (data.type === MessageType.CF_AGENT_STREAM_RESUMING) transport.handleStreamResuming(data);
 	if (data.type === MessageType.CF_AGENT_STREAM_RESUME_NONE) transport.handleStreamResumeNone(data);
 	if (data.type === MessageType.CF_AGENT_STREAM_PENDING) transport.handleStreamPending();
+	// A turn Klippy started on its own (a reminder, c-08): print its reply when the finished chat arrives.
+	const last: UIMessage | undefined = data.type === MessageType.CF_AGENT_CHAT_MESSAGES ? data.messages.at(-1) : undefined;
+	if (last?.role === 'assistant' && !seen.has(last.id)) {
+		seen.add(last.id);
+		process.stdout.write(`\nklippy> ${textOf(last)}\nyou> `);
+	}
 });
 
 // The conversation lives in the agent, not here: read it whenever we need it.
@@ -32,10 +40,10 @@ async function load(): Promise<UIMessage[]> {
 // `message` is the reply being continued (after an approval), so its old text isn't printed twice.
 async function print(stream: ReadableStream<UIMessageChunk> | null, message?: UIMessage) {
 	if (!stream) return;
-	const textOf = (reply: UIMessage) => reply.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
 	let printed = message ? textOf(message).length : 0;
 	process.stdout.write('klippy> ');
 	for await (const reply of readUIMessageStream({ stream, message })) {
+		seen.add(reply.id);
 		process.stdout.write(textOf(reply).slice(printed));
 		printed = textOf(reply).length;
 	}
@@ -51,6 +59,7 @@ async function ask(prompt: string) {
 }
 
 let messages = await load();
+for (const message of messages) seen.add(message.id);
 console.log(`Talking to Klippy "${name}" (${messages.length} messages so far). /clear to start over, Ctrl+D to quit.`);
 for (let text = await ask('you> '); text !== undefined; text = await ask('you> ')) {
 	if (!text) continue;
