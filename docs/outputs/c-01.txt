@@ -1,0 +1,7 @@
+# c-01 Agents are loops. 2026-11-03.
+# A sandbox lesson: plan -> act -> observe, in the bits sandbox. No code changes in klippy,
+# so this tag holds only this note. The code is exactly as at b-09.
+# Start course C from here:
+#   git clone https://github.com/ryanyogan/klippy && cd klippy && git checkout c-01 && pnpm install
+# Already in the code from course B, worth pointing at: generateText with stopWhen: isStepCount(3) IS a small loop
+# (call the model, run the tools it asked for, call it again), and onStepEnd logs each turn of it.
