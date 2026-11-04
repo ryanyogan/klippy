@@ -10,7 +10,7 @@
 		"build:client": "esbuild app/actions/public/entry.ts app/actions/public/chat.tsx --bundle --splitting --format=esm --minify --outdir=public/assets --jsx=automatic --jsx-import-source=remix/component",
 		"dev": "wrangler dev --port 8802 -c wrangler.jsonc -c ../agent/wrangler.jsonc",
 		"deploy": "wrangler deploy",
-		"cf-typegen": "wrangler types",
+		"cf-typegen": "wrangler types --strict-vars=false",
 		"typecheck": "tsc --noEmit",
 		"doctor": "remix doctor",
 		"test": "node --test app/*.test.ts"

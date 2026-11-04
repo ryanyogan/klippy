@@ -1,0 +1,97 @@
+# d-11 Checkpoint: Klippy on the web. Recorded 2026-11-03 on Linux, Node v24.22.2, remix 3.1.0, agents 0.33.0,
+# wrangler 4.157.0 (versions checked with `npm view` the same day).
+#
+# Notes for the writer:
+# - What changed:
+#     apps/agent/src/check.ts         TAG = 'd-11' (and check.spec.ts expects it)
+#     apps/web/app/routes.ts          check: GET /klippy/check (public)
+#     apps/web/app/actions/check/     controller (no requireUser; data-schema for ?nonce; CHECK_LIMITER per address;
+#                                     forwards to the agent's /klippy/check through the service binding; no-store),
+#                                     schema.ts
+#     apps/web/app/router.ts          maps it
+#     apps/web/wrangler.jsonc         ratelimits: CHECK_LIMITER, 10 a minute, namespace_id 1002 (the agent's is 1001)
+#     apps/web/worker-configuration.d.ts   regenerated (`wrangler types --strict-vars=false`); the cf-typegen script
+#                                     now passes that flag too (it didn't, so a plain `pnpm cf-typegen` would have
+#                                     made APP_ORIGIN a literal type)
+#     package.json                    deploy:web
+# - Budget: the web check spends nothing new. The agent's check caches its probe 5 minutes and allows at most 10 fresh
+#   probes a minute in total (shared key, a-05), with no tools; the web route adds its own per-address limit in front.
+#   The rest is unchanged: chat turns go through the token, the per-Klippy limit and the 2,000-character cap; the page
+#   cut is enforced three ways in the agent (c-07); the allowlist is by numeric GitHub id (d-06).
+# - The probe answer below came from the Workers AI fallback, and the probe says so ("model": "@cf/zai-org/glm-4.7-flash"):
+#   there's no Anthropic key on the recording account's gateway.
+# - What the checkpoint lesson joins: sign in (d-06), notes (d-07), the chat with approvals (d-08…d-10), and the grader
+#   route. bits grades by calling the WEB app's /klippy/check, so it proves both Workers and the binding between them.
+# - NOT DONE (owner): the live deploy. Nothing was deployed and nothing was pushed. Exact steps are in "PENDING" below.
+
+## The prompt (fresh session; plan mode first)
+
+Goal: get Klippy's web app ready to deploy and gradeable: a public /klippy/check on the web app that answers through
+the agent, so bits can prove both Workers and the binding between them work.
+Use the remix skill (routes, controllers, data-schema) and the cloudflare skill for the Rate Limiting binding.
+Constraints:
+- GET /klippy/check?nonce= in its own controller, no sign-in. Validate nonce with data-schema (8–64 of A-Z a-z 0-9 _ -).
+- Rate limit it per address with a new binding (10 a minute); forward to the agent's /klippy/check with agentFetch.
+- Set TAG to 'd-11' in apps/agent/src/check.ts and its test. Don't deploy anything.
+Plan first, then wait for my go-ahead.
+Done when typecheck, tests and remix doctor pass, both `wrangler deploy --dry-run`s build, and the local check
+returns the nonce and tag d-11. Report the files and outputs, then list the deploy steps for me to run.
+
+## What to expect
+- New: apps/web/app/actions/check/{controller.tsx,schema.ts}. Changed: routes.ts, router.ts, wrangler.jsonc,
+  worker-configuration.d.ts, apps/agent/src/check.ts and its test, package.json (deploy:web).
+
+## Review checklist
+- [ ] The check controller has no requireUser, and nothing else became public (/, /notes and /chat still redirect).
+- [ ] Bad nonce → 400 before any call to the agent; the 11th call in a minute → 429.
+- [ ] The response is JSON with Cache-Control: no-store; the agent's body passes through unchanged.
+- [ ] No secret, account id or real GitHub id was written into wrangler.jsonc.
+- [ ] Reject: a probe that calls the model directly from the web app, a check that writes anything, `wrangler deploy`
+      run by the agent without you.
+
+## Steer prompts
+- "You put /klippy/check inside the root controller, which has requireUser, so the grader gets a 302. Give it its own
+  controller without it."
+- "The check calls the model from the web Worker. Forward to the agent's /klippy/check with agentFetch instead: it
+  already caches and limits the probe."
+- "Don't run wrangler deploy. List the steps and I'll run them."
+
+## Verification (real, 2026-11-03; pnpm dev:web on 8802)
+
+$ pnpm typecheck → packages/data-table-d1, apps/web, apps/agent: Done
+$ pnpm test → data-table-d1 ℹ pass 24; web ℹ pass 3; agent Tests 64 passed (64)
+$ pnpm --filter web exec remix doctor → Summary: 0 warnings, 0 advice.
+$ (apps/agent) pnpm exec wrangler deploy --dry-run → Total Upload: 3683.72 KiB / gzip: 712.91 KiB
+$ (apps/web)   pnpm exec wrangler deploy --dry-run → Total Upload: 986.29 KiB / gzip: 196.53 KiB
+
+$ curl -i "localhost:8802/klippy/check?nonce=bits-d11-check"
+HTTP/1.1 200 OK
+Content-Type: application/json
+Cache-Control: no-store
+{"nonce":"bits-d11-check","tag":"d-11","probe":{"answer":"Hi bits!","model":"@cf/zai-org/glm-4.7-flash"}}
+
+$ curl "localhost:8802/klippy/check?nonce=bad!"   (and with no nonce)
+{"error":"Send ?nonce= (8 to 64 letters, digits, - or _)"} 400
+{"error":"Send ?nonce= (8 to 64 letters, digits, - or _)"} 400
+$ 10 more calls from the same address (limit 10 a minute):
+200 200 200 200 200 200 200 200 200 429 
+$ GET / signed out still redirects
+302 http://localhost:8802/login
+
+## PENDING (owner): deploy both Workers and record the live check
+1. GitHub OAuth app (github.com → Settings → Developer settings → OAuth Apps → New OAuth App):
+   Homepage URL https://klippy-web.<your-subdomain>.workers.dev,
+   Authorization callback URL https://klippy-web.<your-subdomain>.workers.dev/auth/github/callback.
+   Copy the Client ID; generate a Client secret.
+2. apps/web/wrangler.jsonc: APP_ORIGIN = https://klippy-web.<your-subdomain>.workers.dev; ALLOWED_GITHUB_IDS = your
+   numeric id (`gh api user --jq .id`).
+3. Agent first (the web app binds to it):
+   cd ~/code/klippy/apps/agent && pnpm exec wrangler secret put KLIPPY_TOKEN   # skip if set at a-05
+   pnpm exec wrangler d1 migrations apply DB --remote                           # already applied at b-09; idempotent
+   cd ~/code/klippy && pnpm deploy
+4. Web secrets (KLIPPY_TOKEN = the same value as the agent's; SESSION_SECRET from `openssl rand -base64 32`):
+   cd ~/code/klippy/apps/web && for s in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET SESSION_SECRET KLIPPY_TOKEN; do pnpm exec wrangler secret put $s; done
+5. cd ~/code/klippy && pnpm deploy:web
+6. Record:
+   curl -s "https://klippy-web.<your-subdomain>.workers.dev/klippy/check?nonce=bits-d11-live" | tee -a docs/outputs/d-11.txt
+   then sign in with GitHub in a browser, send one message, approve one saveNote, and check it on /notes.

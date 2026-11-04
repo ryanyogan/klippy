@@ -9,6 +9,8 @@ export const routes = route({
 		index: get('/notes'),
 		destroy: post('/notes/:id/delete'),
 	},
+	// For the bits checkpoint grader. Public.
+	check: { index: get('/klippy/check') },
 	auth: {
 		login: get('/login'),
 		github: get('/auth/github'),

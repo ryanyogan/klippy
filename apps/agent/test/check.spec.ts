@@ -16,10 +16,10 @@ describe('GET /klippy/check', () => {
 		const first = await check('abc12345');
 		expect(first.status).toBe(200);
 		expect(first.headers.get('Cache-Control')).toBe('no-store');
-		expect(await first.json()).toEqual({ nonce: 'abc12345', tag: 'c-09', probe: { answer: 'Hello, bits!' } });
+		expect(await first.json()).toEqual({ nonce: 'abc12345', tag: 'd-11', probe: { answer: 'Hello, bits!' } });
 
 		const second = await check('zyx98765');
-		expect(await second.json()).toEqual({ nonce: 'zyx98765', tag: 'c-09', probe: { answer: 'Hello, bits!' } });
+		expect(await second.json()).toEqual({ nonce: 'zyx98765', tag: 'd-11', probe: { answer: 'Hello, bits!' } });
 		expect(fake.model.doGenerateCalls).toHaveLength(1);
 		// Anyone can call the check, so its probe gets no tools: it can't write a note.
 		expect(fake.model.doGenerateCalls[0].tools ?? []).toEqual([]);
