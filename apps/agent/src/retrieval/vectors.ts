@@ -9,13 +9,14 @@ export async function embed(env: Env, texts: string[]): Promise<number[][]> {
 	return result.data;
 }
 
-export type ChunkRow = { id: number; owner: string; source_id: number; text: string };
+export type ChunkRow = { id: number; owner: string; source_id: number; context?: string; text: string };
 
 // Store one vector per chunk. The id ties it to the chunk row in D1, and the metadata says whose it is,
 // so a search can ask for one Klippy's chunks only (owner has a metadata index). Upsert: a retry overwrites.
 export async function upsertChunks(env: Env, rows: ChunkRow[]) {
 	if (rows.length === 0) return 0;
-	const vectors = await embed(env, rows.map((row) => row.text));
+	// The context sentence goes in front of the chunk, so the vector carries where the chunk came from.
+	const vectors = await embed(env, rows.map((row) => (row.context ? `${row.context}\n\n${row.text}` : row.text)));
 	await env.VECTORIZE.upsert(
 		rows.map((row, i) => ({ id: `chunk-${row.id}`, values: vectors[i], metadata: { owner: row.owner, sourceId: row.source_id } })),
 	);

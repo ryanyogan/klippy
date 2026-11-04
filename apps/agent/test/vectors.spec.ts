@@ -26,6 +26,12 @@ describe('upsertChunks', () => {
 		]);
 	});
 
+	it('embeds the context line in front of the chunk', async () => {
+		const { env, calls } = fakeEnv();
+		await upsertChunks(env, [{ id: 9, owner: 'gh-1', source_id: 4, context: 'From the Pip page.', text: 'She likes carrots.' }]);
+		expect(calls.run).toEqual([{ model: EMBEDDING_MODEL, input: { text: ['From the Pip page.\n\nShe likes carrots.'] } }]);
+	});
+
 	it('calls nothing for a source with no chunks', async () => {
 		const { env, calls } = fakeEnv();
 		expect(await upsertChunks(env, [])).toBe(0);

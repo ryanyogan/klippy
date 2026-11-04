@@ -21,6 +21,7 @@
 		"wrangler": "4.157.0"
 	},
 	"dependencies": {
+		"@ai-sdk/anthropic": "4.0.96",
 		"@ai-sdk/provider": "4.0.35",
 		"@cloudflare/ai-chat": "0.12.2",
 		"@klippy/db": "workspace:*",

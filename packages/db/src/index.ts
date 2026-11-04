@@ -35,5 +35,6 @@ export const chunks = table({
 		owner: c.text(),
 		position: c.integer(),
 		text: c.text(),
+		context: c.text(), // 0005: one sentence placing the chunk in its document ('' until written)
 	},
 });

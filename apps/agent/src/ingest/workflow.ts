@@ -3,6 +3,7 @@ import { AgentWorkflow, type AgentWorkflowEvent, type AgentWorkflowStep } from '
 import { createD1Database } from 'data-table-d1';
 import type { Klippy } from '../agent';
 import { chunk } from './chunk';
+import { contextFor } from './context';
 import { readLinkAsMarkdown } from './read';
 import { saveChunks } from './sources';
 import { type ChunkRow, upsertChunks } from '../retrieval/vectors';
@@ -31,9 +32,22 @@ export class IngestWorkflow extends AgentWorkflow<Klippy, IngestParams> {
 			}
 			// Cut the text into chunks and save them, each with its source and position.
 			const count = await step.do('chunk', () => saveChunks(this.env.DB, source, chunk(body)));
+			// Contextual retrieval: one sentence of context per chunk, one step each, so a retry never redoes a finished one.
+			// A source of one chunk is its own context, so it costs no call.
+			for (let position = 0; count > 1 && position < count; position++) {
+				await step.do(`context ${position}`, { retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' } }, async () => {
+					const row = await this.env.DB.prepare('SELECT id, text FROM chunks WHERE source_id = ? AND position = ?')
+						.bind(sourceId, position)
+						.first<{ id: number; text: string }>();
+					if (!row) return '';
+					const context = await contextFor(this.env, body, row.text);
+					await this.env.DB.prepare('UPDATE chunks SET context = ? WHERE id = ?').bind(context, row.id).run();
+					return context;
+				});
+			}
 			// Embed every chunk and store the vectors in Vectorize (Workers AI is called once for up to 50 chunks).
 			await step.do('embed', { retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' } }, async () => {
-				const { results } = await this.env.DB.prepare('SELECT id, owner, source_id, text FROM chunks WHERE source_id = ? ORDER BY position')
+				const { results } = await this.env.DB.prepare('SELECT id, owner, source_id, context, text FROM chunks WHERE source_id = ? ORDER BY position')
 					.bind(sourceId)
 					.all<ChunkRow>();
 				return upsertChunks(this.env, results);

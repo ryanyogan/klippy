@@ -14,10 +14,13 @@ vi.mock('../src/ingest/read', () => ({
 }));
 
 // No real Vectorize in tests: record what would be stored.
-const stored = vi.hoisted(() => [] as { id: number; owner: string; source_id: number }[]);
+type Stored = { id: number; owner: string; source_id: number; context?: string; text: string };
+const stored = vi.hoisted(() => [] as Stored[]);
 vi.mock('../src/retrieval/vectors', () => ({
-	upsertChunks: async (_env: Env, rows: { id: number; owner: string; source_id: number }[]) => (stored.push(...rows), rows.length),
+	upsertChunks: async (_env: Env, rows: Stored[]) => (stored.push(...rows), rows.length),
 }));
+// No real Claude: the context line is made up from the chunk's heading.
+vi.mock('../src/ingest/context', () => ({ contextFor: async (_env: Env, _doc: string, chunk: string) => `About ${chunk.split('\n')[0].replace('# ', '')}.` }));
 
 beforeAll(() => applyD1Migrations(env.DB, env.TEST_MIGRATIONS));
 
@@ -93,6 +96,22 @@ describe('ingest', () => {
 		expect(results).toEqual([{ owner: 'nora', position: 0, text: 'Pip is my dog. She likes carrots.' }]);
 		// and its one chunk went to the vector index, tagged with its owner
 		expect(stored.filter((row) => row.source_id === id).map((row) => row.owner)).toEqual(['nora']);
+	});
+
+	it('a source of several chunks gets a context line per chunk, embedded with it and searchable by keyword', async () => {
+		const form = new FormData();
+		const doc = '# Garden\n\nTomatoes go in after the last frost.\n\n# Kitchen\n\nThe kettle is descaled monthly.';
+		form.set('file', new File([doc], 'home.md', { type: 'text/markdown' }));
+		let id = 0;
+		await andWait(async () => {
+			const response = await SELF.fetch('https://example.com/agents/klippy/ruth/file', { method: 'POST', body: form, headers: { Authorization: 'Bearer test-token' } });
+			id = (await response.json<{ id: number }>()).id;
+		});
+		const { results } = await env.DB.prepare('SELECT position, context FROM chunks WHERE source_id = ? ORDER BY position').bind(id).all();
+		expect(results).toEqual([{ position: 0, context: 'About Garden.' }, { position: 1, context: 'About Kitchen.' }]);
+		expect(stored.filter((row) => row.source_id === id).map((row) => row.context)).toEqual(['About Garden.', 'About Kitchen.']);
+		const fts = await env.DB.prepare("SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH 'about'").all();
+		expect(fts.results.length).toBeGreaterThanOrEqual(2); // the context column is indexed too
 	});
 
 	it(`a Klippy can add at most ${MAX_SOURCES_PER_DAY} sources a day`, async () => {

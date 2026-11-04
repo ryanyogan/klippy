@@ -1,0 +1,73 @@
+# e-06 Contextual retrieval. Recorded 2026-11-03 on Linux, Node v24.22.2, agents 0.33.0, ai 7.0.162,
+# @ai-sdk/anthropic 4.0.96 (new; `npm view` the same day: its @ai-sdk/provider 4.0.35 matches the repo's), wrangler 4.157.0.
+#
+# Facts checked 2026-11-03 (Firecrawl, maxAge 0, platform.claude.com prompt-caching page): Claude Haiku 5.5 caches
+# prompts from 512 tokens (Haiku 4.5: 4,096); default cache lifetime 5 minutes; 5-minute writes cost 1.25x base input,
+# hits about 0.1x. Installed agents/docs/models.md: a catalog id ("anthropic/claude-haiku-5.5") goes through /run as
+# OpenAI chat completions, so Anthropic's cache_control can't travel that way; an Anthropic model object
+# (ai(anthropic("claude-haiku-5-5"))) goes to the gateway's provider-native path, unchanged, and the gateway supplies the
+# stored key (the placeholder apiKey is stripped).
+#
+# Notes for the writer:
+# - What changed:
+#     packages/db/migrations/0005_chunk_context.sql   chunks.context (TEXT, default ''); the FTS index dropped and
+#                                                     rebuilt with (context, text), triggers and all
+#     packages/db/src/index.ts                        chunks.context
+#     apps/agent/package.json                         @ai-sdk/anthropic 4.0.96
+#     apps/agent/src/model.ts                         contextModel(env): ai(anthropic('claude-haiku-5-5')) through the
+#                                                     same `default` gateway, fallback Workers AI glm-4.7-flash
+#     apps/agent/src/ingest/context.ts                contextFor(): document first (capped at 24,000 chars), marked
+#                                                     cacheControl ephemeral; then the chunk; one sentence back, capped at
+#                                                     300 chars, maxOutputTokens 100; logs which model answered and the
+#                                                     cached input tokens
+#     apps/agent/src/ingest/workflow.ts               one step per chunk ('context 0', 'context 1', ...), each saving its
+#                                                     sentence to D1, so a retry never redoes a finished chunk; skipped for
+#                                                     one-chunk sources (notes); 'embed' now reads context too
+#     apps/agent/src/retrieval/vectors.ts             embeds "context\n\nchunk"
+#     apps/agent/test/context.spec.ts                 2 tests: the prompt shape (cacheControl on the document part only)
+#                                                     and the cap
+#     apps/agent/test/ingest.spec.ts                  context mocked; a two-chunk file gets a line per chunk, embedded
+#                                                     with it, and FTS finds words from the context column
+#     apps/agent/test/vectors.spec.ts                 the context goes in front of the chunk
+# - Budget: at most 50 context calls per source (one per chunk), 30 sources a day per Klippy, each call's document
+#   capped at ~6,000 tokens and cached. The calls run one after another on purpose: the first writes Claude's cache and
+#   the rest read it (parallel calls would all miss).
+# - Prompt wording is ours (Anthropic's cookbook has the original idea and prompt; credit it, don't copy it).
+# - Retrieved content stays untrusted: a page can steer its own context sentence. The context model has no tools,
+#   and e-07's retrieval cut treats context + text alike.
+# - FALLBACK: the gateway has no Anthropic key, so every context line below came from Workers AI glm-4.7-flash (the log
+#   says so), and cachedTokens is 0: caching wasn't exercised. Re-record after the owner adds BYOK (checklist).
+#   Expect the second call on a document over 512 tokens to show cachedTokens > 0 with Haiku.
+
+## Verification (real, 2026-11-03)
+
+$ pnpm typecheck        -> ok
+$ pnpm exec vitest run  -> 19 files, 87 tests passed
+
+$ pnpm exec wrangler d1 migrations apply DB --local     -> 0005_chunk_context.sql ✅
+$ pnpm exec wrangler dev --port 8801
+$ curl -s -X POST -H "Authorization: Bearer $T" -F "file=@docs/ui-brief.md;type=text/markdown" http://localhost:8801/agents/klippy/me/file
+{"id":6,"title":"ui-brief.md","status":"queued"}
+$ wrangler d1 execute DB --local --json --command "SELECT position, context FROM chunks WHERE source_id = 6 ORDER BY position"
+{"position":0,"context":"This chunk is the document header and states its date, context, and purpose."}
+{"position":1,"context":"The Goal section describes why the Klippy on the web interface exists and the primary user experience it aims to provide."}
+{"position":2,"context":"The chunk defines the target audience as the Klippy's owner and the restriction to GitHub accounts on an allowlist."}
+{"position":3,"context":"This chunk outlines the application's routes, describing what each page displays and its access control behavior."}
+{"position":4,"context":"This chunk sits under the section called \"States to design\" and lists all the user interface states for the application, including the chat and notes screens."}
+{"position":5,"context":"This chunk comes from the \"Look\" section and outlines the UI typography, spacing, tokens, and navigation requirements."}
+{"position":6,"context":"This chunk specifies the state changes and announcements for tool approvals, including instructions for handling users without JavaScript."}
+{"position":7,"context":"The \"Accessibility bar\" section explains the requirements for keyboard navigation, readable contrast, live region behavior, and the minimal JavaScript needed."}
+{"position":8,"context":"This section lists features excluded from the project scope, such as React and Tailwind."}
+{"position":9,"context":"This chunk lists external web resources used to guide the UI design, referencing a React component system that the prototype will reimplement with plain CSS and illustrate concepts for course D."}
+$ curl -s -G ... --data-urlencode "q=who is allowed to sign in" http://localhost:8801/agents/klippy/me/search
+{"chunkId":14,"title":"ui-brief.md","starts":"## Who it's for\n\nThe owner of this Klippy. It's a "}
+...
+(chunk 14 is the copy of this section from e-04, before contexts existed; this run's chunks are 22-31. Search still
+returns old copies because the brief was uploaded three times.)
+
+(after adding the log line, a two-section file:)
+$ curl ... -F "file=@trip.md;type=text/markdown" http://localhost:8801/agents/klippy/me/file
+{"id":7,"title":"trip.md","status":"queued"}
+dev log:
+{"event":"context","model":"@cf/zai-org/glm-4.7-flash","inputTokens":95,"cachedTokens":0}
+{"event":"context","model":"@cf/zai-org/glm-4.7-flash","inputTokens":93,"cachedTokens":0}
