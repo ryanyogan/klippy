@@ -3,7 +3,7 @@ import type { User } from '../auth.ts';
 import { routes } from '../routes.ts';
 
 // The one document every page renders inside: head, the stylesheet, the top bar, and a main column.
-export function Layout(handle: Handle<{ title: string; user?: User; children?: RemixNode }>) {
+export function Layout(handle: Handle<{ title: string; user?: User; current?: 'chat' | 'notes'; children?: RemixNode }>) {
 	return () => (
 		<html lang="en">
 			<head>
@@ -21,6 +21,16 @@ export function Layout(handle: Handle<{ title: string; user?: User; children?: R
 					<a class="brand" href={routes.home.href()}>
 						Klippy
 					</a>
+					{handle.props.user && (
+						<nav aria-label="Main">
+							<a href={routes.home.href()} aria-current={handle.props.current === 'chat' ? 'page' : undefined}>
+								Chat
+							</a>
+							<a href={routes.notes.index.href()} aria-current={handle.props.current === 'notes' ? 'page' : undefined}>
+								Notes
+							</a>
+						</nav>
+					)}
 					{handle.props.user && (
 						<form method="post" action={routes.auth.logout.href()}>
 							<button class="quiet" type="submit">

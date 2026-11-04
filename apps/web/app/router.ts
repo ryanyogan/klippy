@@ -4,6 +4,7 @@ import { session } from 'remix/middleware/session';
 import { createRouter, type RouterContext } from 'remix/router';
 import controller from './actions/controller.tsx';
 import authController from './actions/auth/controller.tsx';
+import notesController from './actions/notes/controller.tsx';
 import { loadUser, sessionCookie, sessionStorage } from './auth.ts';
 import { routes } from './routes.ts';
 
@@ -26,3 +27,4 @@ declare module 'remix' {
 
 router.map(routes, controller);
 router.map(routes.auth, authController);
+router.map(routes.notes, notesController);

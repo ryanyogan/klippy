@@ -8,6 +8,15 @@
 	"assets": { "directory": "public" },
 	// AGENT is the agent Worker ("klippy"), called like fetch() but Worker to Worker: no public internet in between.
 	"services": [{ "binding": "AGENT", "service": "klippy" }],
+	// The same D1 database as the agent: the notes Klippy saves are the notes you see here.
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "klippy-db",
+			"database_id": "e51fc5ce-ea1d-48b0-afd7-e0af5cd1672f",
+			"migrations_dir": "../../packages/db/migrations"
+		}
+	],
 	"vars": {
 		// Your deployed web app's address (GitHub sends you back here). .dev.vars sets http://localhost:8802 locally.
 		"APP_ORIGIN": "https://klippy-web.YOUR-SUBDOMAIN.workers.dev",

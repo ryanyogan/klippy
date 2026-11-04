@@ -56,6 +56,12 @@ importers:
 
   apps/web:
     dependencies:
+      '@klippy/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      data-table-d1:
+        specifier: workspace:*
+        version: link:../../packages/data-table-d1
       remix:
         specifier: 3.1.0
         version: 3.1.0(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.3)

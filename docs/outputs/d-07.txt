@@ -1,0 +1,88 @@
+# d-07 Your notes, as pages. Recorded 2026-11-03 on Linux, Node v24.22.2, remix 3.1.0, wrangler 4.157.0.
+#
+# Notes for the writer:
+# - What changed (apps/web only, plus the lockfile):
+#     wrangler.jsonc          d1_databases: the SAME klippy-db (same id, migrations in ../../packages/db) as the agent
+#     package.json            @klippy/db and data-table-d1 (workspace:*): the agent's table and driver, shared
+#     app/db.ts               database() = createD1Database(env.DB)
+#     app/routes.ts           notes: index GET /notes, destroy POST /notes/:id/delete
+#     app/actions/notes/      controller (requireUser at controller level), schema.ts (data-schema: q ≤ 100 chars,
+#                             id = whole number ≥ 1), notes-page.tsx (search form GET, a Delete form per note)
+#     app/ui/layout.tsx       nav: Chat / Notes with aria-current
+# - Search is `like('body', '%q%')` (SQLite LIKE: case-insensitive for ASCII). A typed % or _ only widens the search;
+#   the value is bound, never pasted into SQL. 50 notes max per page.
+# - Delete answers 303 to /notes?deleted=1 (Remix guide 09: redirect after a POST so a refresh doesn't resend), and
+#   the page shows "Note deleted." in a role=status line. cop() refuses a cross-site POST (403).
+# - Notes have no owner column (b-05). The allowlist (d-06) is what keeps them private; say so again here.
+# - How the signed-in pages were checked without GitHub: a LOCAL-ONLY test cookie, signed with the SESSION_SECRET in
+#   apps/web/.dev.vars, for user id 1 (ALLOWED_GITHUB_IDS=1 in that .dev.vars). The script lived in the session
+#   scratchpad and is not in the repo. Gotcha found: with maxAge set, remix's session middleware stores
+#   {"value": …, "expires": …} in the cookie, so a hand-made cookie must wrap the value the same way.
+#   Three notes were seeded into the web Worker's local D1 (`wrangler d1 migrations apply DB --local`, then
+#   `wrangler d1 execute DB --local --command "INSERT …"`), dated 2025-11-03 (made-up timestamps).
+# - Honest gap: the home page's "0 saved messages" can't tell "no messages" from "the agent refused the call".
+#   d-09's chat goes through the same token path and proves it.
+# - How this was made: the lane R agent wrote the code against the prompt below (not a recorded fresh Claude Code run).
+
+## The prompt (fresh session; plan mode first)
+
+Goal: add a Notes page that lists, searches and deletes the notes Klippy saves, so I can tidy them without the chat.
+Use the remix skill: read guides 08 (data and validation) and 09 (forms and mutations), and the data-table and
+data-schema READMEs first.
+Constraints:
+- Same D1 database and the same `notes` table as the agent: import it from @klippy/db, query with remix/data-table
+  through the data-table-d1 driver. No raw SQL strings, no new tables.
+- Native forms: search is a GET form with ?q (at most 100 characters), delete is a POST form per note that
+  redirects with 303. Validate q and the id with remix/data-schema.
+- Signed-in only (the d-06 requireUser). Touch only apps/web/**.
+Plan first, then wait for my go-ahead.
+Done when typecheck and remix doctor pass, signed-out /notes redirects to /login, and a cross-site delete gets 403.
+Report the files and outputs.
+
+## What to expect
+- New: app/db.ts, app/actions/notes/{controller.tsx,schema.ts,notes-page.tsx}. Changed: routes, router, layout,
+  wrangler.jsonc, package.json, worker-configuration.d.ts.
+
+## Review checklist
+- [ ] The table comes from @klippy/db (not redefined); D1 database_id matches apps/agent/wrangler.jsonc.
+- [ ] Every input is parsed with data-schema before use (q, :id); bad input is a 4xx, never a 500.
+- [ ] Delete is POST + 303; there's no GET that deletes.
+- [ ] Each Delete button's accessible name says which note.
+- [ ] Reject: string-built SQL (`"... LIKE '%" + q + "%'"`), a second copy of the notes table, client-side JS for this.
+
+## Steer prompts
+- "You built the search SQL by joining strings. Use like('body', `%${q}%`) from remix/data-table so the value is bound."
+- "Delete is a link (GET). Make it a POST form, and redirect with 303 after deleting."
+- "You redefined the notes table in apps/web. Import it from @klippy/db so both Workers share one definition."
+
+## Verification (real, 2026-11-03; pnpm dev:web on 8802; signed in with the local test cookie described above)
+
+$ pnpm --filter web typecheck → no errors
+$ pnpm --filter web exec remix doctor → Summary: 0 warnings, 0 advice.
+$ pnpm --filter web exec wrangler deploy --dry-run → Total Upload: 353.93 KiB / gzip: 75.19 KiB
+
+## GET /notes signed out
+HTTP/1.1 302 Found
+Location: /login
+## GET /notes signed in
+<main id="main" tabindex="-1"><h1>Your notes</h1><form method="get" action="/notes" role="search"><label for="q">Search your notes</label><div class="row"><input id="q" name="q" type="search" value="" maxlength="100" /><button type="submit">Search</button></div></form><ul class="notes"><li><p>Dentist on Friday at 3pm<time datetime="2025-11-04T01:33:20.000Z">Tue, 04 Nov 2025 01:33:20 GMT</time></p><form method="post" action="/notes/3/delete"><button type="submit" aria-label="Delete note: Dentist on Friday at 3pm" class="danger">Delete</button></form></li><li><p>Call Sam about the trip<time datetime="2025-11-03T22:46:40.000Z">Mon, 03 Nov 2025 22:46:40 GMT</time></p><form method="post" action="/notes/2/delete"><button type="submit" aria-label="Delete note: Call Sam about the trip" class="danger">Delete</button></form></li><li><p>Buy oat milk<time datetime="2025-11-03T20:00:00.000Z">Mon, 03 Nov 2025 20:00:00 GMT</time></p><form method="post" action="/notes/1/delete"><button type="submit" aria-label="Delete note: Buy oat milk" class="danger">Delete</button></form></li></ul></main>
+## GET /notes?q=sam
+<ul class="notes"><li><p>Call Sam about the trip<time datetime="2025-11-03T22:46:40.000Z">Mon, 03 Nov 2025 22:46:40 GMT</time></p><form method="post" action="/notes/2/delete"><button type="submit" aria-label="Delete note: Call Sam about the trip" class="danger">Delete</button></form></li></ul>
+## GET /notes?q=zebra
+<p class="muted">No notes match "zebra".
+## q over 100 chars
+Search is at most 100 characters. 400
+## POST delete from another site
+403
+## POST delete signed out
+HTTP/1.1 302 Found
+Location: /login
+## POST delete bad id
+No such note. 404
+## POST delete note 1
+HTTP/1.1 303 See Other
+Location: /notes?deleted=1
+## GET /notes?deleted=1   (note 1 is gone; the notice, checked separately: <p role="status" class="notice">Note deleted.)
+<ul class="notes"><li><p>Dentist on Friday at 3pm<time datetime="2025-11-04T01:33:20.000Z">Tue, 04 Nov 2025 01:33:20 GMT</time></p><form method="post" action="/notes/3/delete"><button type="submit" aria-label="Delete note: Dentist on Friday at 3pm" class="danger">Delete</button></form></li><li><p>Call Sam about the trip<time datetime="2025-11-03T22:46:40.000Z">Mon, 03 Nov 2025 22:46:40 GMT</time></p><form method="post" action="/notes/2/delete"><button type="submit" aria-label="Delete note: Call Sam about the trip" class="danger">Delete</button></form></li></ul>
+## GET / signed in
+<main id="main" tabindex="-1"><h1>Hi, Local Test</h1><p class="muted">Your Klippy is <code>gh-1</code>. It has 0 saved messages.</p></main>
