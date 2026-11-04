@@ -1,0 +1,84 @@
+# c-09 Checkpoint: Klippy, the agent. Recorded 2026-11-03 (UTC 2026-11-04, tour from 01:13:48) on Linux, Node v24.22.2,
+# wrangler 4.157.0, agents 0.33.0, @cloudflare/ai-chat 0.12.2, ai 7.0.162, zod 4.6.7 (versions checked with
+# `npm view` on 2026-11-03).
+# MODEL: no Anthropic key on the gateway, so the Workers AI fallback (@cf/zai-org/glm-4.7-flash) answered. The check
+# below names it: "model":"@cf/zai-org/glm-4.7-flash".
+#
+# NOT RECORDED HERE: the live deploy (this lane may not deploy). The owner runs, in apps/agent:
+#   pnpm wrangler deploy        # the first deploy with the Klippy Durable Object applies migration "v1" (new_sqlite_classes)
+#   curl -s "https://klippy.<subdomain>.workers.dev/klippy/check?nonce=checkpoint-c09"   # expect "tag":"c-09"
+#   KLIPPY_URL=https://klippy.<subdomain>.workers.dev pnpm chat me                       # the tour below, against the deploy
+# (KLIPPY_TOKEN is already a secret from a-05; the remote D1 schema was applied at b-09.)
+#
+# Notes for the writer:
+# - The only code change: TAG = 'c-09' in src/check.ts (and its test). bits' grader reads it.
+# - What the checkpoint joins: one Klippy per name (c-03), the terminal chat (c-04), facts that survive /clear (c-05),
+#   saveNote behind y/n (c-06), the step cap, repeat guard and page cut (c-07), reminders that speak on their own
+#   with no tools (c-08).
+# - Locks, all still in place: the token (header; ?token= only on the WebSocket upgrade, stripped before the agent),
+#   10 turns a minute per Klippy, 2,000-character messages, 300 output tokens, 8 steps, 40 kept messages, 50 facts of
+#   200 characters, 10 waiting reminders and 20 fired a day, readLink exact-link-only with no redirects, no
+#   notes/memory/reminder tools once a page is in the chat, /klippy/check with no tools and a cached probe.
+# - The tour: "ryan-c09" already had 8 messages from a take interrupted by a security fix to c-08 (that take ran the
+#   older code and is not shown). "What should I wear today?" after /clear: the fallback model asked a question
+#   instead of using the remembered "Dublin" and getWeather; Claude is expected to do better, re-record once the
+#   gateway has a key. "QiDone!" is the fallback model's stray output, kept as recorded.
+
+## Tests: pnpm exec vitest run test/check.spec.ts --reporter=verbose
+
+ ✓ test/check.spec.ts > GET /klippy/check > echoes each nonce and names the tag, but asks the model only once in five minutes 18ms
+ ✓ test/check.spec.ts > GET /klippy/check > refuses a missing or odd nonce 3ms
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+## pnpm test (whole repo)
+ Test Files  14 passed (14)
+      Tests  64 passed (64)   (57 before the c-07 amends; re-run 2026-11-03)
+
+## pnpm dev --port 8801 (request log only)
+[wrangler:info] Ready on http://localhost:8801
+{"step":0,"finish":"stop","toolCalls":[],"toolResults":[],"toolErrors":[],"text":"Hello, bits!","tokens":37}
+[wrangler:info] GET /klippy/check 200 OK (5313ms)
+[wrangler:info] GET /agents/klippy/ryan-c09/get-messages 200 OK (27ms)
+[wrangler:info] GET /agents/klippy/ryan-c09 101 Switching Protocols (31ms)
+[wrangler:info] GET /agents/klippy/ryan-c09/get-messages 200 OK (7ms)
+[wrangler:info] GET /agents/klippy/ryan-c09/get-messages 200 OK (8ms)
+[wrangler:info] GET /agents/klippy/ryan-c09/get-messages 200 OK (7ms)
+[wrangler:info] GET /agents/klippy/ryan-c09/get-messages 200 OK (10ms)
+[wrangler:info] GET /agents/klippy/ryan-c09/get-messages 200 OK (6ms)
+[wrangler:info] GET /agents/klippy/ryan-c09/get-messages 200 OK (8ms)
+[wrangler:info] GET /agents/klippy/ryan-c09/get-messages 200 OK (5ms)
+[wrangler:info] GET /agents/klippy/ryan-c09/get-messages 200 OK (7ms)
+[wrangler:info] GET /agents/klippy/ryan-c09/get-messages 200 OK (8ms)
+
+## curl -s "http://localhost:8801/klippy/check?nonce=checkpoint-c09"
+{"nonce":"checkpoint-c09","tag":"c-09","probe":{"answer":"Hello, bits!","model":"@cf/zai-org/glm-4.7-flash"}}
+
+## The tour: (printf "Hi, I am Ryan and I live in Dublin. Please remember that.\n/clear\nWhat should I wear today?\nSave a note: renew my passport.\ny\nRemind me in one minute to stretch.\n"; sleep 100) | KLIPPY_URL=http://localhost:8801 pnpm chat ryan-c09
+# UTC start/end: 01:13:48 01:15:28 . The last klippy> line came on its own, a minute after the reminder was set.
+
+
+> agent@0.0.0 chat /home/ryan/code/klippy/apps/agent
+> tsx --env-file=.dev.vars scripts/chat.ts ryan-c09
+
+Talking to Klippy "ryan-c09" (8 messages so far). /clear to start over, Ctrl+D to quit.
+you> klippy> Got it, Ryan! I've remembered that you live in Dublin.
+you> (chat cleared)
+you> klippy> What type of clothing works for you (e.g., shirt, pants), and where will you be going? Then I can look up the Dublin weather and suggest appropriate garments.
+you> klippy> 
+Klippy wants to use saveNote with {"body":"renew my passport"}. Allow? (y/n) klippy> Got it. I’ve saved your note: "renew my passport" (ID 16).
+you> klippy> QiDone! I’ll message you in one minute to stretch.
+you> 
+klippy> Go stretch!
+you> 
+## pnpm exec wrangler deploy --dry-run (apps/agent)
+ ⛅️ wrangler 4.157.0
+────────────────────
+Total Upload: 3679.00 KiB / gzip: 711.85 KiB
+Your Worker has access to the following bindings:
+Binding                            Resource            
+env.Klippy (Klippy)                Durable Object      
+env.DB (klippy-db)                 D1 Database         
+env.AI                             AI                  
+env.LIMITER (10 requests/60s)      Rate Limit          
+--dry-run: exiting now.
