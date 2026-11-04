@@ -9,6 +9,11 @@
 	"compatibility_date": "2026-11-03",
 	// The agents package uses Node APIs (AsyncLocalStorage), so it needs Node compatibility.
 	"compatibility_flags": ["nodejs_compat"],
+	// No public address (f-01). No klippy.<subdomain>.workers.dev route, and no preview URLs either (turning off workers.dev
+	// alone leaves those on). The only way in is the web app's service binding, which picks your Klippy from your session.
+	// `wrangler dev` still answers on localhost, so `pnpm chat` works against your local copy.
+	"workers_dev": false,
+	"preview_urls": false,
 	"observability": {
 		"enabled": true,
 		// Logs: every console.log and request, searchable in the dashboard for 7 days.

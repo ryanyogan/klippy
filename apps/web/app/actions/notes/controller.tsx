@@ -15,13 +15,13 @@ export default createController(routes.notes, {
 		async index(context) {
 			const query = parseSafe(NotesQuery, context.url.searchParams);
 			if (!query.success) return new Response('Search is at most 100 characters.', { status: 400 });
-			const { q, deleted } = query.value;
+			const { q, deleted, sent } = query.value;
 			const rows = await database().findMany(notes, {
 				where: q ? like('body', `%${q}%`) : undefined,
 				orderBy: ['id', 'desc'],
 				limit: 50,
 			});
-			return context.render(<NotesPage user={context.auth.identity} notes={rows} q={q} deleted={deleted === '1'} />);
+			return context.render(<NotesPage user={context.auth.identity} notes={rows} q={q} deleted={deleted === '1'} sent={sent === '1'} />);
 		},
 		async destroy(context) {
 			const id = parseSafe(NoteId, context.params.id);

@@ -6,6 +6,7 @@ import controller from './actions/controller.tsx';
 import authController from './actions/auth/controller.tsx';
 import checkController from './actions/check/controller.tsx';
 import notesController from './actions/notes/controller.tsx';
+import sourcesController from './actions/sources/controller.tsx';
 import { loadUser, sessionCookie, sessionStorage } from './auth.ts';
 import { routes } from './routes.ts';
 
@@ -29,4 +30,5 @@ declare module 'remix' {
 router.map(routes, controller);
 router.map(routes.auth, authController);
 router.map(routes.notes, notesController);
+router.map(routes.sources, sourcesController);
 router.map(routes.check, checkController);

@@ -1,4 +1,5 @@
-// Two locks for a public Worker that spends your own model budget.
+// Two locks for a Worker that spends your own model budget. Since f-01 it has no public address, and the token stays
+// as the second lock: anything that does reach it (the web app, `wrangler dev`) must still prove it's you.
 
 // 1. Only you: send "Authorization: Bearer <KLIPPY_TOKEN>". The token is a Worker secret.
 // allowQuery: a WebSocket can't send that header, so the agent's socket alone may send ?token=<KLIPPY_TOKEN>.

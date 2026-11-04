@@ -5,6 +5,7 @@ import { getToolName, isToolUIPart, readUIMessageStream, type UIMessage, type UI
 import { createInterface } from 'node:readline/promises';
 
 // `pnpm chat alice` talks to the Klippy called "alice". KLIPPY_TOKEN comes from .dev.vars.
+// Local only since f-01: the deployed agent has no public address, so use the web app there.
 const url = new URL(process.env.KLIPPY_URL ?? 'http://localhost:8787');
 const name = process.argv[2] ?? 'me';
 const token = process.env.KLIPPY_TOKEN ?? '';

@@ -1,0 +1,59 @@
+# f-01 Close the side door. Recorded 2026-11-03 on Linux, Node v24.22.2, agents 0.33.0, ai 7.0.162, wrangler 4.157.0,
+# remix 3.1.0 (versions checked with `npm view` the same day; vitest 5.1.0 is out, we stay on 5.0.5 with vitest-plugin 1.5.1).
+#
+# Notes for the writer:
+# - What changed:
+#     apps/agent/wrangler.jsonc     "workers_dev": false AND "preview_urls": false. The docs (workers.dev page, checked
+#                                   2026-11-03, maxAge 0) say turning off workers.dev does NOT turn off Version/Preview
+#                                   URLs, so both keys. No routes either: the agent has no public address once deployed.
+#     apps/web/app/routes.ts        sources.upload = POST /sources/file, sources.search = GET /sources/search
+#     apps/web/app/actions/sources/controller.tsx   signed-in only (requireUser); the agent name comes from the session
+#                                   (agentName(user) = gh-<id>), never from the request; 1 MB cap checked on
+#                                   Content-Length before reading and on the bytes after; the agent's own error text is
+#                                   passed on with its 4xx status (5xx becomes 502); success = 303 to /notes?sent=1
+#     apps/web/app/actions/notes/*  a "Send Klippy a file" form (multipart) and the "File sent" notice
+#     apps/web/app/router.ts        maps routes.sources
+#     apps/agent/src/guard.ts, scripts/chat.ts   comments: the token stays as the second lock; pnpm chat is local only now
+# - The concept: the instance comes from the server, never the client. Before f-01 anyone with KLIPPY_TOKEN could reach
+#   any Klippy name at klippy.<sub>.workers.dev/agents/klippy/<any-name>; now only the web app reaches the agent, over the
+#   service binding, and it names the agent from the signed-in GitHub id. The token stays (defence in depth), and so do
+#   every limit and cap: nothing was loosened.
+# - Plan said "getAgentByName from the session". We kept the service binding + routeAgentRequest (the web app builds the
+#   path /agents/klippy/gh-<id> from the session). A Durable Object binding from the web Worker into the agent's script
+#   would also work, but adds a second way in and cross-script DO types for no gain at this size. Say so in the lesson.
+# - Since f-01, `pnpm chat` (course C) works only against `wrangler dev`. The deployed agent answers only the web app.
+# - NOT VERIFIED LIVE: that klippy.<sub>.workers.dev stops answering needs a deploy (owner checklist). The dry-run below
+#   only proves the config builds. After deploying, expect: curl https://klippy.<sub>.workers.dev/ -> no route (404 from
+#   Cloudflare, error 1042 or similar), and the web app still works.
+# - The smoke used a local-only signed test cookie for GitHub id 1 (script not in the repo), as in d-07 … d-11.
+#   Vectorize is remote in dev: the upload below put one dev-smoke vector into klippy-notes.
+# - FALLBACK: the ingest context step ran on Workers AI glm-4.7-flash (no Anthropic key on the gateway); its context
+#   came back empty for this one-line file.
+
+## Verification (real, 2026-11-03)
+
+$ pnpm typecheck        -> ok (agent, web)
+$ pnpm test             -> agent 21 files, 96 tests; web 3; data-table-d1 24; all passed
+$ (apps/agent) pnpm exec wrangler deploy --dry-run   -> Total Upload: 4076.43 KiB / gzip: 781.94 KiB
+
+$ pnpm dev:web          (one wrangler process with both Workers on 8802; local D1 migrations 0001-0005 applied)
+$ curl -i -b <test cookie> -F file=@pip.md localhost:8802/sources/file
+HTTP/1.1 415 Unsupported Media Type
+
+$ (signed out) curl -i -F file=@pip.md localhost:8802/sources/file
+HTTP/1.1 302 Found
+Location: /login
+
+$ curl -b <test cookie> localhost:8802/notes?sent=1 | grep notice
+File sent. Klippy is reading it now; ask about it in the chat in a minute.
+$ (wrong type: curl sends .md as application/octet-stream) -> the agent refuses, the web app passes its reason on
+Send plain text, Markdown, HTML or a PDF. [415]
+$ curl -i -b <test cookie> -F "file=@pip.md;type=text/markdown" localhost:8802/sources/file
+HTTP/1.1 303 See Other
+Location: /notes?sent=1
+$ a 1.2 MB file
+Files can be up to 1 MB. [413]
+$ (75 s later) curl -b <test cookie> "localhost:8802/sources/search?q=what+does+Pip+eat"
+{"hits":[{"chunkId":1,"sourceId":1,"title":"pip-f01.md","url":null,"kind":"file","context":"","text":"# Pip\n\nPip is my rabbit. Pip eats carrots and parsley every morning at 7."}]}
+$ signed out
+302 http://localhost:8802/login

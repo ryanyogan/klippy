@@ -9,6 +9,11 @@ export const routes = route({
 		index: get('/notes'),
 		destroy: post('/notes/:id/delete'),
 	},
+	// Your saved sources, through your Klippy (f-01: the agent has no public address, so the web app is the way in).
+	sources: {
+		upload: post('/sources/file'),
+		search: get('/sources/search'),
+	},
 	// For the bits checkpoint grader. Public.
 	check: { index: get('/klippy/check') },
 	auth: {

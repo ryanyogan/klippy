@@ -7,6 +7,7 @@ import * as f from 'remix/data-schema/form-data';
 export const NotesQuery = f.object({
 	q: f.field(s.defaulted(s.string().pipe(maxLength(100)), '')),
 	deleted: f.field(s.defaulted(s.string(), '')),
+	sent: f.field(s.defaulted(s.string(), '')),
 });
 
 // The :id in /notes/:id/delete: a whole number from 1 up.
