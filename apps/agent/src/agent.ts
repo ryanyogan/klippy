@@ -43,7 +43,7 @@ export class Klippy extends AIChatAgent {
 		// A nudge turn gets no tools at all (built empty, and none offered below), so a reminder can only speak.
 		const tools = nudged ? {} : chatTools(this, this.env, question, turn, pageInChat, retrievedInChat);
 		const result = streamText({
-			model: model(this.env),
+			model: model(this.env, { route: 'chat', user: this.name }), // labelled with whose Klippy it is, in the gateway's logs
 			system: [
 				'You are Klippy, a friendly personal assistant. Answer in one or two sentences.',
 				"For questions about what the user saved, use searchNotes, answer only from its passages and cite them like [1].",

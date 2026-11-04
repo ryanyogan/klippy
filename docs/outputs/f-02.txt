@@ -1,0 +1,46 @@
+# f-02 The gateway earns its keep. Recorded 2026-11-03 on Linux, Node v24.22.2, agents 0.33.0, ai 7.0.162,
+# wrangler 4.157.0 (versions checked with `npm view` the same day).
+#
+# Notes for the writer:
+# - What changed:
+#     apps/agent/src/model.ts      model(env, call) with call = { route, user?, cache? }; one gateway() helper builds
+#                                  createAI({ binding, id: 'default', metadata: { app, route, user }, cacheKey?, cacheTtl? })
+#                                  so Claude and the fallback leg carry the same labels (a leg inherits the chain's options).
+#     apps/agent/src/agent.ts      chat turns: { route: 'chat', user: this.name } (gh-<id> on the web)
+#     apps/agent/src/ask.ts        ask(env, question, tools, call); returns cache: providerMetadata.cloudflare.cacheStatus
+#     apps/agent/src/check.ts      the probe opts into the gateway cache: cacheKey klippy-check-<TAG>, cacheTtl 300
+#     apps/agent/src/note.ts       { route: 'note' }; context step { route: 'context' }
+#     apps/agent/test/gateway.spec.ts   a recording stand-in for env.AI: a chat carries the labels on both legs and no cache
+#                                  keys; the probe carries cacheKey + cacheTtl. No model or network is called.
+# - FACT CHECKED (AI Gateway caching docs, 2026-11-03, maxAge 0): caching is OFF by default; cf-aig-cache-ttl only sets the
+#   lifetime "for a request that already uses caching"; cf-aig-cache-key is what opts one request in; TTL minimum 60 s,
+#   maximum one month; the default key is an exact hash of provider, endpoint, model, auth header and the full body.
+#   So the plan's createAI({ cacheTtl }) ALONE caches nothing on a fresh gateway: the lesson must use cacheKey too (or
+#   turn on caching in the gateway settings). That's why Klippy sets both.
+# - Why only the probe is cached: a chat is personal and time-dependent (getTime, your notes). A cached chat reply could
+#   answer Bob with Alice's words if the key were wrong. Cache only what's the same for everyone.
+# - Metadata is labels only (app, route, user id): never the question, a note or a token. Teach that the gateway LOG
+#   itself stores prompts and replies by default (collectLog); for a personal Klippy that's your own data in your account.
+# - Spend control (dashboard, not code): AI Gateway spend limits (changelog 2026-06-05, checked today) are cost budgets
+#   that block requests once spent, scoped by model, provider or custom metadata, so the "user" label above is what a
+#   per-user daily dollar limit keys on. The account-wide Budget alerts (Billing, changelog 2026-04-13) email you, but
+#   fire the day after. NOT SET on the recording account: owner checklist.
+# - The fallback model is unchanged since a-04 (Claude Haiku 5.5, then Workers AI glm-4.7-flash).
+# - FALLBACK: the probe answers below are glm-4.7-flash (no Anthropic key on the gateway). The HIT is real: the gateway
+#   cached the fallback leg's answer under the chain's key.
+# - TAG stays e-09 until the checkpoint (f-08), so the key in this recording is klippy-check-e-09.
+
+## Verification (real, 2026-11-03)
+
+$ pnpm typecheck        -> ok (agent, web)
+$ pnpm test             -> agent 22 files, 98 tests; web 3; data-table-d1 24; all passed
+$ (apps/agent) pnpm exec wrangler deploy --dry-run   -> Total Upload: 4077.25 KiB / gzip: 782.32 KiB
+
+$ pnpm exec wrangler dev --port 8801   (first server)
+$ curl -s "localhost:8801/klippy/check?nonce=f02-first"
+{"nonce":"f02-first","tag":"e-09","probe":{"answer":"Hello, little bits!","model":"@cf/zai-org/glm-4.7-flash","cache":"MISS"}}
+$ curl -s "localhost:8801/klippy/check?nonce=f02-again"   (same isolate: the module cache answers, no model call)
+{"nonce":"f02-again","tag":"e-09","probe":{"answer":"Hello, little bits!","model":"@cf/zai-org/glm-4.7-flash","cache":"MISS"}}
+$ (stop it, start a NEW server: empty module cache)
+$ curl -s "localhost:8801/klippy/check?nonce=f02-fresh"
+{"nonce":"f02-fresh","tag":"e-09","probe":{"answer":"Hello, little bits!","model":"@cf/zai-org/glm-4.7-flash","cache":"HIT"}}

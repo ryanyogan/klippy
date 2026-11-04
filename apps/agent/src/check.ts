@@ -23,7 +23,10 @@ export async function check(url: URL, env: Env) {
 		if (!(await underLimit(env, 'check'))) {
 			return Response.json({ error: 'Too many checks. Wait a minute.' }, { status: 429 });
 		}
-		cached = { probe: await ask(env, 'Say hello to bits in one short sentence.', {}), at: Date.now() };
+		// The probe is the same for every caller, so the gateway may cache it too (f-02): a fresh isolate, or another
+		// datacenter, gets the cached answer for 5 minutes instead of a new model call. The key names the tag.
+		const probe = await ask(env, 'Say hello to bits in one short sentence.', {}, { route: 'check', cache: { key: `klippy-check-${TAG}`, ttl: 300 } });
+		cached = { probe, at: Date.now() };
 	}
 	return Response.json({ nonce, tag: TAG, probe: cached.probe }, { headers: { 'Cache-Control': 'no-store' } });
 }

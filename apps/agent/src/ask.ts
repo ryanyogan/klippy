@@ -1,5 +1,5 @@
 import { generateText, isStepCount, type ToolSet } from 'ai';
-import { model } from './model';
+import { model, type Call } from './model';
 import { readLink } from './tools/link';
 import { noteTools } from './tools/notes';
 import { getTime } from './tools/time';
@@ -17,9 +17,9 @@ export function allTools(env: Env, question: string) {
 }
 
 // One question in, one answer out. Both /ask and /klippy/check use it.
-export async function ask(env: Env, question: string, tools: ToolSet = allTools(env, question)) {
+export async function ask(env: Env, question: string, tools: ToolSet = allTools(env, question), call: Call = { route: 'ask' }) {
 	const { text, providerMetadata } = await generateText({
-		model: model(env),
+		model: model(env, call),
 		system: 'You are Klippy, a friendly personal assistant. Answer in one or two sentences.',
 		messages: [{ role: 'user', content: question }],
 		maxOutputTokens: 300, // a hard cap on the reply, so one request can't run up a bill
@@ -52,7 +52,8 @@ export async function ask(env: Env, question: string, tools: ToolSet = allTools(
 	// Which model answered: Claude, or the fallback.
 	// Stopped mid-way (the last step was still a tool call)? Then there's no text: say so instead of sending "".
 	const answer = text || OUT_OF_STEPS;
-	return { answer, model: providerMetadata?.cloudflare?.model };
+	// cache: HIT when the gateway answered from its cache (only requests that opt in, like the check probe).
+	return { answer, model: providerMetadata?.cloudflare?.model, cache: providerMetadata?.cloudflare?.cacheStatus };
 }
 
 // A web page is thousands of characters: log the first 300, not the whole page.

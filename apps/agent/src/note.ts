@@ -6,7 +6,7 @@ import { noteTools } from './tools/notes';
 export async function tidyNote(env: Env, text: string) {
 	const { saveNote } = noteTools(env.DB);
 	const { toolResults } = await generateText({
-		model: model(env),
+		model: model(env, { route: 'note' }),
 		system: "Rewrite the user's text as one short, clear note and save it. Keep every name, date and number.",
 		messages: [{ role: 'user', content: text }],
 		maxOutputTokens: 300,
