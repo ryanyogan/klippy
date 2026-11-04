@@ -2,7 +2,9 @@ import { sources } from '@klippy/db';
 import { AgentWorkflow, type AgentWorkflowEvent, type AgentWorkflowStep } from 'agents/workflows';
 import { createD1Database } from 'data-table-d1';
 import type { Klippy } from '../agent';
+import { chunk } from './chunk';
 import { readLinkAsMarkdown } from './read';
+import { saveChunks } from './sources';
 
 export type IngestParams = { sourceId: number };
 
@@ -17,15 +19,19 @@ export class IngestWorkflow extends AgentWorkflow<Klippy, IngestParams> {
 
 		try {
 			// A link is fetched and turned into Markdown. A note or a file already has its text.
+			let body = source.body ?? '';
 			if (source.kind === 'link' && source.url) {
 				// Websites fail now and then: try 3 more times, waiting 5 s, then 10 s, then 20 s.
 				const page = await step.do('fetch', { retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' }, timeout: '1 minute' }, () =>
 					readLinkAsMarkdown(this.env, source.url!),
 				);
 				await step.do('store', () => db.update(sources, sourceId, { title: page.title.slice(0, 200), body: page.body }));
+				body = page.body;
 			}
+			// Cut the text into chunks and save them, each with its source and position.
+			const count = await step.do('chunk', () => saveChunks(this.env.DB, source, chunk(body)));
 			await step.do('ready', () => db.update(sources, sourceId, { status: 'ready' }));
-			return { sourceId, status: 'ready' };
+			return { sourceId, status: 'ready', chunks: count };
 		} catch (error) {
 			// Out of retries: mark it failed, so Klippy can say so instead of pretending it read the page.
 			await step.do('failed', () => db.update(sources, sourceId, { status: 'failed' }));

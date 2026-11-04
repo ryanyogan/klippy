@@ -1,7 +1,7 @@
 import { applyD1Migrations, env, introspectWorkflow, runInDurableObject, SELF } from 'cloudflare:test';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { chatTools, type Klippy } from '../src/agent';
-import { MAX_SOURCES_PER_DAY, queueSource } from '../src/ingest/sources';
+import { MAX_SOURCES_PER_DAY, queueSource, saveChunks } from '../src/ingest/sources';
 import { saveLinkTool } from '../src/tools/sources';
 
 // No real web: the page read is a stand-in that returns Markdown (or fails, when a test says so).
@@ -83,6 +83,8 @@ describe('ingest', () => {
 			id = (await response.json<{ id: number }>()).id;
 		});
 		expect(await source(id)).toMatchObject({ owner: 'nora', kind: 'file', title: 'pip.txt', body: 'Pip is my dog. She likes carrots.', status: 'ready' });
+		const { results } = await env.DB.prepare('SELECT owner, position, text FROM chunks WHERE source_id = ?').bind(id).all();
+		expect(results).toEqual([{ owner: 'nora', position: 0, text: 'Pip is my dog. She likes carrots.' }]);
 	});
 
 	it(`a Klippy can add at most ${MAX_SOURCES_PER_DAY} sources a day`, async () => {
@@ -90,11 +92,20 @@ describe('ingest', () => {
 		expect(await queueSource(env.DB, { owner: 'otto', kind: 'note', title: 'one more', body: 'x' })).toBeNull();
 	});
 
-	it("deleting a note deletes its source", async () => {
+	it('a retried chunk step replaces the chunks instead of adding more', async () => {
+		const row = await queueSource(env.DB, { owner: 'quinn', kind: 'note', title: 't', body: 'x' });
+		await saveChunks(env.DB, row!, ['a', 'b']);
+		await saveChunks(env.DB, row!, ['a', 'b']);
+		expect(await env.DB.prepare('SELECT count(*) AS n FROM chunks WHERE source_id = ?').bind(row!.id).first('n')).toBe(2);
+	});
+
+	it("deleting a note deletes its source and its chunks", async () => {
 		const note = await env.DB.prepare('INSERT INTO notes (body, created_at) VALUES (?, ?) RETURNING id').bind('Call Sam', Date.now()).first<number>('id');
 		const row = await queueSource(env.DB, { owner: 'pia', kind: 'note', title: 'Call Sam', noteId: note!, body: 'Call Sam' });
+		await saveChunks(env.DB, row!, ['Call Sam']);
 		await env.DB.prepare('DELETE FROM notes WHERE id = ?').bind(note).run();
 		expect(await source(row!.id)).toBeNull();
+		expect(await env.DB.prepare('SELECT count(*) AS n FROM chunks WHERE source_id = ?').bind(row!.id).first('n')).toBe(0);
 	});
 
 	it('saveLink is a private tool: not built once a page is in the chat, and locked after one is read', async () => {

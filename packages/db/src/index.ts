@@ -25,3 +25,15 @@ export const sources = table({
 		created_at: c.integer(),
 	},
 });
+
+// The same columns as migrations/0003_chunks.sql.
+export const chunks = table({
+	name: 'chunks',
+	columns: {
+		id: c.integer().primaryKey(),
+		source_id: c.integer(),
+		owner: c.text(),
+		position: c.integer(),
+		text: c.text(),
+	},
+});

@@ -30,3 +30,16 @@ export async function queueSource(d1: D1Database, source: NewSource) {
 		{ returnRow: true },
 	);
 }
+
+// At most 50 chunks a source (60,000 characters / 1,200), so one big page can't run up the embedding bill.
+export const MAX_CHUNKS = 50;
+
+// Replace a source's chunks in one batch: a retried step starts clean instead of adding duplicates.
+export async function saveChunks(d1: D1Database, source: { id: number; owner: string }, texts: string[]) {
+	const insert = d1.prepare('INSERT INTO chunks (source_id, owner, position, text) VALUES (?, ?, ?, ?)');
+	await d1.batch([
+		d1.prepare('DELETE FROM chunks WHERE source_id = ?').bind(source.id),
+		...texts.slice(0, MAX_CHUNKS).map((text, position) => insert.bind(source.id, source.owner, position, text)),
+	]);
+	return Math.min(texts.length, MAX_CHUNKS);
+}

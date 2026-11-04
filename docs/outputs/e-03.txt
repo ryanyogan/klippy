@@ -1,0 +1,42 @@
+# e-03 Chunking. Recorded 2026-11-03 on Linux, Node v24.22.2, agents 0.33.0, wrangler 4.157.0.
+#
+# Notes for the writer:
+# - What changed:
+#     packages/db/migrations/0003_chunks.sql   chunks: source_id (FK, ON DELETE CASCADE), owner (copied, so search can
+#                                              filter without a join), position, text
+#     packages/db/src/index.ts                 the chunks table
+#     apps/agent/src/ingest/chunk.ts           chunk(): 24 lines. Paragraphs kept whole, a heading starts a new chunk,
+#                                              ~1,200 chars a chunk (about 300 tokens, under bge-base-en-v1.5's 512-token
+#                                              input limit, checked on its model page 2026-11-03), 200 chars of overlap
+#                                              from a word boundary, a giant paragraph cut by length
+#     apps/agent/src/ingest/sources.ts         saveChunks(): DELETE + INSERTs in one D1 batch (a retried step replaces,
+#                                              never duplicates); at most 50 chunks a source
+#     apps/agent/src/ingest/workflow.ts        new step 'chunk' after 'store'; the result reports the chunk count
+#     apps/agent/test/chunk.spec.ts            4 tests (short text, headings, packing + overlap, giant paragraph)
+#     apps/agent/test/ingest.spec.ts           the file route test checks its chunk; a retried saveChunks replaces;
+#                                              deleting a note deletes its source AND its chunks (D1 enforces foreign
+#                                              keys, so the cascade really runs in Miniflare)
+# - Teach the three knobs: size (precision vs context), overlap (sentences cut at the border), structure (headings).
+#   Anthropic's Contextual Retrieval post is the source for "chunks lose their context" (fixed in e-06).
+# - Why the step is idempotent: a Workflow may run a step again after a failure, so a step that writes must be safe
+#   to repeat. The batch deletes the source's old chunks first.
+
+## Verification (real, 2026-11-03)
+
+$ pnpm typecheck        -> ok
+$ pnpm exec vitest run  -> 16 files, 76 tests passed
+
+$ pnpm exec wrangler d1 migrations apply DB --local     -> 0003_chunks.sql ✅
+$ pnpm exec wrangler dev --port 8801
+$ curl -s -X POST -H "Authorization: Bearer $T" -F "file=@docs/ui-brief.md;type=text/markdown" http://localhost:8801/agents/klippy/me/file
+{"id":3,"title":"ui-brief.md","status":"queued"}
+(4,409 bytes of Markdown)
+$ wrangler d1 execute DB --local --json --command "SELECT s.id, s.title, s.status, count(c.id) AS chunks, max(length(c.text)) AS longest, min(length(c.text)) AS shortest FROM sources s LEFT JOIN chunks c ON c.source_id = s.id WHERE s.title = 'ui-brief.md' GROUP BY s.id"
+{"id":3,"title":"ui-brief.md","status":"ready","chunks":10,"longest":1004,"shortest":108}
+$ wrangler d1 execute DB --local --json --command "SELECT position, substr(text, 1, 70) AS starts FROM chunks WHERE source_id = 3 ORDER BY position LIMIT 5"
+{"position":0,"starts":"# Klippy on the web: UI brief\n\nWritten 2026-11-03, before any front-en"}
+{"position":1,"starts":"## Goal\n\nOne person, signed in with GitHub, chats with their own Klipp"}
+{"position":2,"starts":"## Who it's for\n\nThe owner of this Klippy. It's a personal app: only G"}
+{"position":3,"starts":"## Screens\n\n| Path | What it shows | Signed out |\n|---|---|---|\n| `/` "}
+{"position":4,"starts":"## States to design\n\n- Chat: empty (\"Say hi to Klippy\"), streaming (te"}
+(Every chunk starts at a heading here because this brief has short sections.)
