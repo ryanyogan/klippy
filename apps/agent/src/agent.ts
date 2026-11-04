@@ -9,6 +9,9 @@ import { noteTools } from './tools/notes';
 import { MAX_NUDGES_PER_DAY, remindTools } from './tools/remind';
 import { getTime } from './tools/time';
 import { getWeather } from './tools/weather';
+import { saveLinkTool } from './tools/sources';
+import { queueSource } from './ingest/sources';
+import { fileToMarkdown } from './ingest/file';
 
 // One Klippy per name. Each instance is its own Durable Object, with its own conversation in its own SQLite,
 // so Alice's chat never mixes with Bob's (a global array in the Worker would hold everyone's).
@@ -81,6 +84,23 @@ export class Klippy extends AIChatAgent {
 		return createUIMessageStreamResponse({ stream });
 	}
 
+	// POST /agents/klippy/<name>/file: send Klippy a file to answer from (the Worker already checked your token).
+	// Plain text, Markdown, HTML or PDF, up to 1 MB. It's converted to Markdown now and ingested in the background.
+	async onRequest(request: Request) {
+		if (request.method !== 'POST' || new URL(request.url).pathname.split('/').pop() !== 'file') {
+			return new Response('Not found', { status: 404 });
+		}
+		if (!(await underLimit(this.env, `file:${this.name}`))) return Response.json({ error: 'Too many requests. Wait a minute.' }, { status: 429 });
+		const file = (await request.formData().catch(() => null))?.get('file');
+		if (!(file instanceof File)) return Response.json({ error: 'Send a form with a "file" field.' }, { status: 400 });
+		const text = await fileToMarkdown(this.env, file);
+		if (text instanceof Response) return text;
+		const source = await queueSource(this.env.DB, { owner: this.name, kind: 'file', title: file.name || 'file', body: text });
+		if (!source) return Response.json({ error: "You've added enough for today. Try again tomorrow." }, { status: 429 });
+		await this.runWorkflow('INGEST', { sourceId: source.id });
+		return Response.json({ id: source.id, title: source.title, status: source.status }, { status: 202 });
+	}
+
 	// A reminder is due (see remindMe). Nobody sent a message: Klippy starts the turn itself.
 	async nudge({ message }: { message: string }) {
 		// Wait for any reply in progress, or a question waiting for your answer. Still busy? Try again in a minute.
@@ -130,7 +150,20 @@ export function chatTools(agent: Klippy, env: Env, question: string, turn: { pag
 			...remindTools(agent),
 			listNotes,
 			// Saving a note writes to your database, so Klippy asks you first. The turn pauses until you answer.
-			saveNote: tool({ ...saveNote, needsApproval: true }),
+			saveNote: {
+				...saveNote,
+				needsApproval: true,
+				// Once saved, the note is also queued as a source, so Klippy can search it later (course E).
+				execute: async (input: { body: string }, opts: Parameters<NonNullable<typeof saveNote.execute>>[1]) => {
+					const result = await saveNote.execute!(input, opts);
+					const { id, body } = (result as { saved: { id: number; body: string } }).saved;
+					const source = await queueSource(env.DB, { owner: agent.name, kind: 'note', title: body.slice(0, 60), noteId: id, body });
+					if (source) await agent.runWorkflow('INGEST', { sourceId: source.id });
+					return result;
+				},
+			},
+			// Saving a link also writes, and fetches a page later: it asks first too.
+			saveLink: tool({ ...saveLinkTool(agent, env, question), needsApproval: true }),
 		}),
 	};
 }

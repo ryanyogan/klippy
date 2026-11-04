@@ -25,7 +25,7 @@ export function readLink(env: Env, question: string) {
 }
 
 // The http(s) links in a message, written the one way URL writes them (so "example.com" and "example.com/" match).
-function linksIn(text: string) {
+export function linksIn(text: string) {
 	const found = text.match(/https?:\/\/[^\s<>"'`]+/g) ?? [];
 	return new Set(found.map((link) => normalize(link.replace(/[.,;:!?)\]]+$/, ''))).filter(Boolean));
 }

@@ -56,7 +56,7 @@ describe('when loops go wrong', () => {
 		fake.model = fakeModel({ tool: 'readLink', input: { url: 'https://example.com/' } }, 'Done.', 'Hi again.');
 		const klippy = env.Klippy.getByName('quinn');
 		await klippy.saveMessages([say('m1', 'What does that page say?')]);
-		expect(toolsAt(0)).toEqual(['forget', 'getTime', 'getWeather', 'listNotes', 'readLink', 'remember', 'remindMe', 'saveNote']);
+		expect(toolsAt(0)).toEqual(['forget', 'getTime', 'getWeather', 'listNotes', 'readLink', 'remember', 'remindMe', 'saveLink', 'saveNote']);
 		expect(toolsAt(1)).toEqual(['getTime', 'getWeather', 'readLink']);
 
 		// Next turn: the page is still in the conversation, so the private tools stay off.

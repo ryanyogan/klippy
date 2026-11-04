@@ -6,6 +6,8 @@ import { tidyNote } from './note';
 
 // Durable Object classes must be exported from the Worker's main file.
 export { Klippy } from './agent';
+// So are Workflow classes.
+export { IngestWorkflow } from './ingest/workflow';
 
 export default {
 	async fetch(request, env): Promise<Response> {
