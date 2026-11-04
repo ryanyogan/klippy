@@ -1,0 +1,45 @@
+# f-07 Your own domain, previews. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0 (Previews need
+# 4.135.0+ per the wrangler skill, 4.136.3+ per wrangler-action's README), cloudflare/wrangler-action v4.1.3.
+#
+# Notes for the writer:
+# - CI RESULT FOR f-06 (recorded here, as f-06's output said): run 41768008367 on main: check success; deploy success
+#   with "No Cloudflare secrets yet, so no deploy" run and every other step skipped. Run 41768008197 on the f-06 tag:
+#   check success, deploy skipped (not main). The gate works as written.
+# - What changed (config and docs only, plus one guard):
+#     apps/web/wrangler.jsonc   a commented custom domain: "routes": [{ "pattern": "klippy.example.com", "custom_domain":
+#                               true }] with the three things that change with it (APP_ORIGIN, the GitHub OAuth callback,
+#                               workers.dev turning off). Commented because the hostname must be on a zone in YOUR account.
+#                               A "previews" block: vars APP_ORIGIN https://preview.invalid and ALLOWED_GITHUB_IDS "" (nobody
+#                               signs in), its own rate-limit namespaces (3002, 3003), and deliberately NO AGENT and NO DB.
+#     apps/web/app/agent.ts     agentFetch answers 503 "This deployment has no agent (a Preview)." when env.AGENT is
+#                               missing, instead of throwing. (Not exercised locally: wrangler dev doesn't use the previews
+#                               block, and front-end tests are skipped by the owner. The check below proves the normal path.)
+#     .github/workflows/ci.yml  a preview job on pull requests: wrangler-action `preview --name pr-<number>` for apps/web,
+#                               same secret gate as deploy (forks never get secrets, so they skip), prints the preview-url
+#                               output.
+# - FACTS CHECKED (2026-11-03, maxAge 0):
+#     Custom Domains (docs updated 2026-09-29): `routes: [{ pattern, custom_domain: true }]`; needs an active zone on the
+#     account; Cloudflare creates the DNS record and certificate; no wildcards; a hostname with an existing CNAME can't be
+#     used. Adding routes infers workers_dev = false on the next deploy (workers.dev page, 2026-09-22).
+#     Previews configuration (2026-09-22): "Previews do not inherit production settings"; storage bindings (D1, KV,
+#     Vectorize...) must be repeated in `previews` pointed at Preview-safe resources; each Preview gets a NEW Durable Object
+#     namespace; "Service bindings from a Preview call the bound Worker's production deployment"; secrets come from the
+#     Previews Base config (`wrangler preview base-config secret put`); Preview URLs are public unless you add Access.
+#   That service-binding line is why the Preview gets no AGENT: with it, a pull request's code would talk to your real
+#   agent with whatever token the Preview holds. A Preview here is for reviewing pages (login, layout, styles), not data.
+# - Found while checking: wrangler 4.157.0's schema lists "secrets" under previews, but `wrangler deploy --dry-run`
+#   warns "Unexpected fields found in previews field: secrets", so it's not in the block. Base-config secrets are the way.
+# - Honest limits of a Preview here: GitHub sign-in can't work on pr-<n> URLs (an OAuth app's callback host is fixed), and
+#   the chat needs the agent. For a full end-to-end staging copy you'd deploy a second pair of Workers (Wrangler
+#   environments) with their own D1, Vectorize and OAuth app: more than this course needs, so the lesson names it only.
+# - NOT RUN: `wrangler preview` and any custom domain (both create live deployments; owner checklist). There's no
+#   dry-run for `wrangler preview` in 4.157.0 (`wrangler preview --help` has no --dry-run).
+
+## Verification (real, 2026-11-03)
+
+$ pnpm typecheck        -> ok (agent, web)
+$ pnpm test             -> agent 25 files, 111 tests; web 3; data-table-d1 24; all passed
+$ (apps/web) pnpm exec wrangler deploy --dry-run   -> Total Upload: 991.10 KiB / gzip: 197.85 KiB, no warnings
+$ node -e "...yaml.parse(ci.yml)..."              -> [ 'check', 'deploy', 'preview' ] 7
+$ pnpm dev:web, then curl -s "localhost:8802/klippy/check?nonce=f07-local-check"
+{"nonce":"f07-local-check","tag":"e-09","probe":{"answer":"I'm Klippy, your friendly personal assistant, ready to help!","model":"@cf/zai-org/glm-4.7-flash","cache":"MISS"}}

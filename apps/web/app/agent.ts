@@ -4,6 +4,8 @@ import type { SerializableObject } from 'remix/component';
 // Call the agent Worker through the service binding, with the agent's token. The token stays on the server:
 // the browser only ever talks to this web app.
 export function agentFetch(path: string, init: RequestInit = {}) {
+	// A Preview has no AGENT binding (wrangler.jsonc, f-07): answer that plainly instead of crashing.
+	if (!env.AGENT) return Promise.resolve(Response.json({ error: 'This deployment has no agent (a Preview).' }, { status: 503 }));
 	const headers = new Headers(init.headers);
 	headers.set('Authorization', `Bearer ${env.KLIPPY_TOKEN}`);
 	return env.AGENT.fetch(new URL(path, 'https://agent'), { ...init, headers });

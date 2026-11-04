@@ -33,5 +33,24 @@
 		"ALLOWED_GITHUB_IDS": "your-github-id"
 	},
 	// Set each with `wrangler secret put <NAME>`, and locally in .dev.vars. Never in this file.
-	"secrets": { "required": ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "SESSION_SECRET", "KLIPPY_TOKEN"] }
+	"secrets": { "required": ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "SESSION_SECRET", "KLIPPY_TOKEN"] },
+
+	// f-07 Your own domain. Uncomment with a hostname on a zone in your Cloudflare account; Cloudflare creates the DNS
+	// record and the certificate. Then set APP_ORIGIN above to https://<that hostname>, and add
+	// https://<that hostname>/auth/github/callback to your GitHub OAuth app. (A route also turns off workers.dev, unless
+	// you set "workers_dev": true.)
+	// "routes": [{ "pattern": "klippy.example.com", "custom_domain": true }],
+
+	// f-07 Previews: `wrangler preview` (or the CI job on a pull request) uploads this branch as a separate Preview with its
+	// own URL. Previews don't inherit production settings: they get only what's in this block. A Preview is for looking at
+	// the pages, never your data, so it gets no AGENT and no DB binding (a Preview's service binding would call your
+	// PRODUCTION agent), and nobody is allowed to sign in. Its secrets are its own: set the four above once with
+	// `wrangler preview base-config secret put <NAME>`, each a NEW value, never production's.
+	"previews": {
+		"vars": { "APP_ORIGIN": "https://preview.invalid", "ALLOWED_GITHUB_IDS": "" },
+		"ratelimits": [
+			{ "name": "CHECK_LIMITER", "namespace_id": "3002", "simple": { "limit": 10, "period": 60 } },
+			{ "name": "USER_LIMITER", "namespace_id": "3003", "simple": { "limit": 30, "period": 60 } }
+		]
+	}
 }
