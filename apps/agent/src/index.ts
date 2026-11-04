@@ -1,6 +1,7 @@
 import { ask, MAX_QUESTION } from './ask';
 import { check } from './check';
 import { clientAddress, isOwner, underLimit } from './guard';
+import { tidyNote } from './note';
 
 export default {
 	async fetch(request, env): Promise<Response> {
@@ -11,19 +12,17 @@ export default {
 		}
 
 		if (url.pathname === '/ask' && request.method === 'POST') {
-			if (!(await isOwner(request, env))) {
-				return Response.json({ error: 'Send Authorization: Bearer <your KLIPPY_TOKEN>' }, { status: 401 });
-			}
-			if (!(await underLimit(env, clientAddress(request)))) {
-				return Response.json({ error: 'Too many questions. Wait a minute.' }, { status: 429 });
-			}
-			// Never trust the body: check that question really is a string before using it.
-			const body = await request.json<{ question?: unknown }>().catch(() => null);
-			const question = typeof body?.question === 'string' ? body.question.trim() : '';
-			if (!question || question.length > MAX_QUESTION) {
-				return Response.json({ error: `Send {"question": "..."}, up to ${MAX_QUESTION} characters` }, { status: 400 });
-			}
+			const question = await guardedText(request, env, 'question');
+			if (question instanceof Response) return question;
 			return Response.json(await ask(env, question));
+		}
+
+		if (url.pathname === '/note' && request.method === 'POST') {
+			const text = await guardedText(request, env, 'text');
+			if (text instanceof Response) return text;
+			const note = await tidyNote(env, text);
+			if (!note) return Response.json({ error: "Klippy couldn't save that note. Try a shorter one." }, { status: 422 });
+			return Response.json(note);
 		}
 
 		if (url.pathname === '/klippy/check' && request.method === 'GET') {
@@ -33,3 +32,22 @@ export default {
 		return new Response('Not found', { status: 404 });
 	},
 } satisfies ExportedHandler<Env>;
+
+// Every route that spends your model budget goes through the same locks: your token, the rate limit,
+// and a body field that must be a string of 1 to 2,000 characters. Returns the text, or the error to send.
+async function guardedText(request: Request, env: Env, field: string): Promise<string | Response> {
+	if (!(await isOwner(request, env))) {
+		return Response.json({ error: 'Send Authorization: Bearer <your KLIPPY_TOKEN>' }, { status: 401 });
+	}
+	if (!(await underLimit(env, clientAddress(request)))) {
+		return Response.json({ error: 'Too many requests. Wait a minute.' }, { status: 429 });
+	}
+	// Never trust the body: check that the field really is a string before using it.
+	const body = await request.json<Record<string, unknown>>().catch(() => null);
+	const value = body?.[field];
+	const text = typeof value === 'string' ? value.trim() : '';
+	if (!text || text.length > MAX_QUESTION) {
+		return Response.json({ error: `Send {"${field}": "..."}, up to ${MAX_QUESTION} characters` }, { status: 400 });
+	}
+	return text;
+}

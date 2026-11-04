@@ -18,6 +18,7 @@ describe('POST /ask', () => {
 
 		const call = fake.model.doGenerateCalls[0];
 		expect(call.maxOutputTokens).toBe(300);
+		expect(call.toolChoice).toEqual({ type: 'auto' }); // Claude decides whether to use a tool
 		expect(call.prompt.at(-1)).toMatchObject({ role: 'user', content: [{ type: 'text', text: 'Who are you?' }] });
 	});
 

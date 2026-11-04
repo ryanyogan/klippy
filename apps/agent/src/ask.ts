@@ -20,6 +20,7 @@ export async function ask(env: Env, question: string, tools: ToolSet = allTools(
 		messages: [{ role: 'user', content: question }],
 		maxOutputTokens: 300, // a hard cap on the reply, so one request can't run up a bill
 		tools,
+		toolChoice: 'auto', // the default, written out: Claude decides whether to call a tool, and which
 		// Step 1: Claude may call a tool. Step 2: it answers with the result. Then stop.
 		stopWhen: isStepCount(2),
 		// Log one line per step, so you can watch the round trip in the `pnpm dev` terminal.

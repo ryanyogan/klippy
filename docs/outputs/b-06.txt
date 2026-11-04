@@ -1,0 +1,99 @@
+# b-06 Choosing when Claude calls. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, agents 0.33.0, ai 7.0.162, zod 4.6.7, remix 3.1.0.
+# MODEL: no Anthropic key on the gateway, so the Workers AI fallback (@cf/zai-org/glm-4.7-flash) answered both routes.
+# Notes for the writer:
+# - New here: POST /note (src/note.ts) forces one tool: toolChoice: { type: 'tool', toolName: 'saveNote' }, and
+#   stopWhen: isStepCount(1), so the saved note is the reply (one model call, no "done!" turn). /ask now says
+#   toolChoice: 'auto' out loud (the default). The /klippy/check probe still sends no tools at all.
+# - AI SDK -> Claude API names: 'auto' = auto, 'required' = any, { type: 'tool', toolName } = tool, 'none' = none.
+#   'none' keeps the tool definitions in the prompt but forbids calls; sending no tools is stronger, which is why the
+#   public check route sends {}.
+# - Claude docs (platform.claude.com, define-tools, "Forcing tool use", checked 2026-11-03): Claude Haiku 5.5 accepts
+#   forced tool use, but a forced call skips thinking (the reply starts with the tool call). Claude Opus 5.5, Sonnet 5.5,
+#   Fable 5.1 and Mythos 5.1 REJECT any/tool with a 400; use auto + strict tool use, or structured outputs, there.
+#   Manual extended thinking also rejects any/tool. Say this in the lesson: forcing is model-dependent.
+# - The recording shows what forcing means: "what is 2+2?" sent to /note was saved as a note, not answered.
+# - Security: /note is a new route that spends model and D1 budget, so it shares /ask's locks through guardedText()
+#   in src/index.ts: the bearer token, the rate limit (one shared budget of 10 a minute per address), and a 1..2,000
+#   character string field. A note over 1,000 characters fails the tool's schema and the route answers 422 (a test).
+# - The 429 text changed from "Too many questions" to "Too many requests" (shared by both routes).
+
+## Terminal 1: pnpm dev (trimmed as in b-05)
+
+> klippy@ dev /home/ryan/code/klippy
+> pnpm --filter agent run dev --port 8801
+
+
+> agent@0.0.0 dev /home/ryan/code/klippy/apps/agent
+> wrangler dev --port 8801
+
+
+ ⛅️ wrangler 4.157.0
+────────────────────
+Using secrets defined in .dev.vars
+Your Worker has access to the following bindings:
+Binding                                 Resource                  Mode
+env.DB (klippy-db)                      D1 Database               local
+env.AI                                  AI                        remote
+env.LIMITER (10 requests/60s)           Rate Limit                local
+env.KLIPPY_TOKEN ("(hidden)")           Environment Variable      local
+
+⎔ Establishing remote connection...
+⎔ Starting local server...
+[wrangler:info] Ready on http://localhost:8801
+[wrangler:info] POST /note 200 OK (4494ms)
+[wrangler:info] POST /note 200 OK (2849ms)
+{"step":0,"finish":"stop","toolCalls":[],"toolResults":[],"text":"2+2 equals 4.","tokens":626}
+[wrangler:info] POST /ask 200 OK (2294ms)
+[wrangler:info] POST /note 401 Unauthorized (3ms)
+
+## Terminal 2
+$ curl -s -X POST http://localhost:8801/note -H "Authorization: Bearer demo-token-for-the-recording" -d '{"text":"ugh remind me 2 call sam re the bike fri, he said after 5"}'
+{"saved":{"id":3,"body":"Reminder to call Sam about the bike Friday, he said after 5"}}
+$ curl -s -X POST http://localhost:8801/note -H "Authorization: Bearer demo-token-for-the-recording" -d '{"text":"what is 2+2?"}'
+{"saved":{"id":4,"body":"What is 2+2?"}}
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"What is 2+2?"}'
+{"answer":"2+2 equals 4.","model":"@cf/zai-org/glm-4.7-flash"}
+$ curl -s -X POST http://localhost:8801/note -d '{"text":"no token"}'
+{"error":"Send Authorization: Bearer <your KLIPPY_TOKEN>"}
+$ pnpm typecheck
+
+> klippy@ typecheck /home/ryan/code/klippy
+> pnpm --recursive run typecheck
+
+Scope: 3 of 4 workspace projects
+packages/data-table-d1 typecheck$ tsc --noEmit
+packages/data-table-d1 typecheck: Done
+apps/agent typecheck$ tsc --noEmit && tsc --noEmit -p test
+apps/agent typecheck: Done
+
+$ pnpm test
+
+> klippy@ test /home/ryan/code/klippy
+> pnpm --recursive run test
+
+Scope: 3 of 4 workspace projects
+packages/data-table-d1 test$ NODE_ENV=test remix test
+packages/data-table-d1 test: Found 1 test file(s) (1 server, 0 browser, 0 e2e)
+packages/data-table-d1 test: Running server tests:
+packages/data-table-d1 test: ▶ D1 data-table driver (913.11ms) [server]
+packages/data-table-d1 test: ℹ files 1
+packages/data-table-d1 test: ℹ suites 1
+packages/data-table-d1 test: ℹ tests 24
+packages/data-table-d1 test: ℹ pass 24
+packages/data-table-d1 test: ℹ fail 0
+packages/data-table-d1 test: ℹ duration_ms 1645.16466
+packages/data-table-d1 test: Done
+apps/agent test$ vitest run
+apps/agent test:  RUN  v5.0.5 /home/ryan/code/klippy/apps/agent
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test:  Test Files  7 passed (7)
+apps/agent test:       Tests  25 passed (25)
+apps/agent test:    Start at  18:11:49
+apps/agent test:    Duration  2.76s (transform 77%, import 18%, tests 3%, worker 1%)
+apps/agent test: Done
