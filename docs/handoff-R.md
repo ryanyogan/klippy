@@ -1,4 +1,4 @@
-# Lane R handoff (2026-11-03, after e-09: course E done)
+# Lane R handoff (2026-11-03, after f-08: course F done; courses A-F complete)
 
 Lane R builds this repo, the reference for bits' build-along courses (bits `docs/plans/build-along.md`,
 decision 071). Read that plan (§1–§5, lane R in §7) and bits `docs/plans/build-along/s0.md` first.
@@ -62,13 +62,23 @@ never rewrite or force-push them; fix forward in the next tag and say so in its 
 | e-07 | | `rerank.ts` (bge-reranker-base); `searchNotes` (hybrid 20 → rerank 5, wrapped `<untrusted_saved_content>`, numbered); system prompt cites [n] / "That's not in your notes."; **retrieval cut**: after searchNotes (turn or chat) every writing tool (remember, forget, remindMe, saveNote, saveLink) throws and only READ_ONLY is offered; web `Sources` shows "[n] title" |
 | e-08 | | `pnpm eval:retrieval` (vitest.eval.config.mts, remote bindings), 6 docs / 12 questions, recall@5. **Bug: used the real index with colliding ids — fixed in e-09; never run e-08's eval** |
 | e-09 | | checkpoint `TAG = 'e-09'`; eval fix forward: `VECTORIZE_EVAL` → `klippy-notes-eval` (created), -eval name guard, prefixed ids, deletes only its own; waits for all vectors |
+| f-01 | 2daa210 | agent `workers_dev: false` + `preview_urls: false` (docs: workers.dev off leaves preview URLs on); web `POST /sources/file` (1 MB, multipart, 303 to /notes?sent=1) and `GET /sources/search`, signed in, agent named from the session; upload form on /notes |
+| f-02 | 47d6288 | `model(env, { route, user?, cache? })`: gateway `metadata` { app, route, user } on every call (both legs); check probe opts into the gateway cache (`cacheKey` + `cacheTtl` 300: cacheTtl alone caches nothing, caching is off by default); `ask` returns `cache` (HIT seen on a fresh server) |
+| f-03 | 155daff | web `USER_LIMITER` (ns 1003, 30/min, key gh-<id>) on upload, search, chat socket; agent `DAILY_TOKEN_BUDGET` var (200000) checked before each turn, usage table in the DO. **Charged only in onFinish: fixed forward in f-04 and f-05** |
+| f-04 | 5ea1a96 | `logTurn` / `logRefused` (console.log objects, shape only); /ask step log shape only; **budget fix 1**: reserve before each step, settle after (cancelled turns pay) |
+| f-05 | 7225952 | `test/injection.spec.ts` (poisoned page, poisoned saved note via real FTS; obeying fake model; nothing happens); system prompt hint line; **budget fix 2**: per-step reserve from that step's messages (chars/3 + 300), missing count keeps the reserve, settle on the reserve's day |
+| f-06 | 41bffde | CI `deploy` job on main after `check`: D1 migrations → agent → web via wrangler-action v4.1.3 (`wranglerVersion` 4.157.0, pnpm), every step gated on `CLOUDFLARE_API_TOKEN` (skips green now) |
+| f-07 | b958ed3 | web: commented custom domain; `previews` block with no AGENT/DB (a Preview's service binding calls production), nobody allowed, own limiter namespaces 3002/3003; `agentFetch` 503 without AGENT; CI `preview` job on PRs, same gate |
+| f-08 | 4004d43 | checkpoint `TAG = 'f-08'`; tour through the web app (check, file, search, chat with a source in headless Chromium) |
 
 c-07 was amended (2026-11-03, after two security reviews): the honest "ran out of steps" text when the 8-step cap stops a turn mid tool-call (`OUT_OF_STEPS` shared with /ask), and the page cut enforced three ways (no private tools built when a page is in the chat; prepareStep fail-closed; `afterPage()` makes notes/memory/remind tools throw once readLink ran in the turn). c-08 rebased: nudge turns build no tools at all. c-07…c-09 re-tagged; 58/64/64 tests.
 
 a-04 and a-05 were amended (and re-tagged) after two security reviews from the lead. The notes in
 `docs/outputs/a-04.txt` and `a-05.txt` tell the writer what to teach about them.
 
-Verified 2026-11-03: e-02…e-09 each pass frozen install, typecheck and tests in a clean worktree (e-09: agent 96, web 3,
+Verified 2026-11-03: f-01…f-08 each pass frozen install, typecheck and tests in a clean worktree (agent 96 → 111, web 3,
+driver 24) and are green in GitHub Actions (main and tag runs; on main the deploy job runs and skips every step with its
+notice). f-01, f-03, f-07, f-08 smoked through `pnpm dev:web` on 8802; f-02 … f-05 on 8801. Before: e-02…e-09 each pass frozen install, typecheck and tests in a clean worktree (e-09: agent 96, web 3,
 driver 24) and are green in GitHub Actions (main and tag runs); each was smoked on 8801 (outputs in docs/outputs).
 Before: d-08…d-11 each pass frozen install, typecheck and tests in a clean worktree (agent 64, web 3, driver 24), d-11's web dry-run also from a clean worktree (986 KiB); d-08…d-11 smoked on 8802. Earlier: c-07, c-08, c-09 and d-01…d-07 pass frozen install, typecheck and tests in a clean worktree (d-07: agent 64 tests + web 3). d-05…d-07 smoked with `pnpm dev:web` on 8802 (curl; outputs in docs/outputs). Earlier: every tag from c-02 to c-09 passes install (frozen lockfile), typecheck, tests and
 `wrangler deploy --dry-run` in a clean worktree (c-09: 14 files, 57 tests). Every tag from c-03 to c-09 was smoked
@@ -78,13 +88,10 @@ a-01 has no code. Every tag from a-04 to b-04 was smoked live on 8801 (outputs i
 
 ## Next
 
-1. Course F (`f-01` … `f-08`) from e-09, per bits plan §3 F: F1 close the side door (`workers_dev: false` on the agent;
-   file upload and search then need a path through the web app's service binding), F2 gateway caching/metadata
-   (`createAI({ cacheTtl, metadata })`, see installed `agents/docs/models.md` "Options"), F3 per-user limit + daily token
-   budget, F4 structured logs + a saved query, F5 safety (poisoned page AND poisoned saved note tests), F6 CI deploy job
-   (gate it on `CLOUDFLARE_API_TOKEN` being set, so it skips until the owner adds secrets; don't deploy), F7 custom
-   domain + previews (config/docs only), F8 checkpoint.
-2. Everything waiting on the owner is in the checklist below.
+1. Courses A–F are built (a-01 … f-08). Course G (MCP) is outline only ("coming soon"): don't build it until the owner asks.
+2. Everything waiting on the owner is in the checklist below. The first deploy is the big one: items 3, 7, 10, 13 together.
+3. Writer notes worth carrying into the lessons: the f-03 page must point at the two budget fixes (f-04, f-05); b-03's
+   step log now logs shape only (f-04); `pnpm chat` is local only since f-01; the notes table has no owner (see Gotchas).
 
 ## Owner checklist (every PENDING item, all tags; nothing here was faked)
 
@@ -99,7 +106,9 @@ Workers AI fallback (`@cf/zai-org/glm-4.7-flash`) and each output says so.
    `pnpm --filter agent exec wrangler login`; `pnpm --filter agent exec wrangler secret put KLIPPY_TOKEN` (value:
    `openssl rand -hex 32`); `pnpm deploy`; `curl -s "https://klippy.<subdomain>.workers.dev/klippy/check?nonce=checkpoint-live"`;
    `pnpm --filter agent exec wrangler tail` while curling (a-05); `KLIPPY_URL=https://klippy.<subdomain>.workers.dev pnpm chat me` (c-09).
-   Remote D1 schema is already applied (b-09).
+   Remote D1 schema is already applied (b-09). **Since f-01 the agent at master has no public URL**: the workers.dev curl
+   and `pnpm chat` against it only work if you deploy an older tag (a-05 … e-09) to record those lessons; at master, check
+   through the web app (item 7). Remote migrations 0002–0005 (item 10) must run before deploying e-02 or later.
 4. **d-03 MCP approval**: run `claude` in ~/code/klippy, approve context7, firecrawl and cloudflare-docs when asked
    (project servers; don't add them to user settings), then
    `claude -p "Use the cloudflare-docs MCP: what is the service binding config key in wrangler.jsonc? One line, with the page URL."`
@@ -120,16 +129,39 @@ Workers AI fallback (`@cf/zai-org/glm-4.7-flash`) and each output says so.
    Untested: whether `secrets.required` lets the first `secret put` precede the first deploy (it should create the
    Worker); if not, deploy once, then put the secrets.
 8. **Re-record with Claude** (after 1): a-04 … d-11 model outputs, which are all fallback answers now.
-9. **GitHub CI**: done (repo public, CI green on e-01…e-09). Add `CLOUDFLARE_*` secrets only when course F's deploy job
-   lands. actionlint never ran (denied locally).
+9. **GitHub CI secrets (f-06)**: repo → Settings → Secrets → Actions: `CLOUDFLARE_API_TOKEN` (account-owned token with
+   Workers Scripts Edit + D1 Edit; add Workers Routes / zone access with a custom domain) and `CLOUDFLARE_ACCOUNT_ID`.
+   The next push to main then migrates D1, deploys the agent, then the web app. Put the Workers' own secrets first
+   (items 3 and 7), or the first CI deploy builds Workers that can't start. actionlint never ran (not installed; denied once).
 10. **Remote D1 migrations 0002–0005** (course E): `cd apps/agent && pnpm exec wrangler d1 migrations apply DB --remote`.
     The lane's attempt was denied by the permission classifier (production action). Needed before any deploy of e-02+.
 11. **Re-record e-06 with Claude** (after 1): contexts came from the GLM fallback and `cachedTokens` was 0; expect a cache
     hit from the second chunk of a document over 512 tokens.
 12. **Vectorize indexes on the account**: `klippy-notes` (app) and `klippy-notes-eval` (eval only), both 768/cosine with an
     `owner` metadata index. Learners create their own; ours hold dev-smoke vectors only.
+13. **After the first deploy (f-01)**: `curl -s https://klippy.<sub>.workers.dev/` should no longer reach the agent
+    (workers.dev off); the web app still works. Paste both into docs/outputs/f-01.txt.
+14. **Gateway spend limit (f-02)**: dashboard → AI → AI Gateway → `default` → spend limits: e.g. a per-day dollar limit
+    scoped by the `user` metadata key, plus an account Budget alert (Billing). Neither is set.
+15. **Saved queries (f-04)**: after a deploy and a few chats, Workers & Pages → klippy → Observability: Filter event = turn,
+    Sum tokens.total + Count + P90 ms, Group By agent → Save as "Klippy: tokens per user"; and event = turn.refused,
+    Count, Group By reason → "Klippy: refused turns". Screenshot or paste into docs/outputs/f-04.txt.
+16. **Custom domain / Previews (f-07, optional)**: uncomment `routes` in apps/web/wrangler.jsonc with a hostname on your
+    zone (then APP_ORIGIN and the OAuth callback); for PR Previews, set the four web secrets once with
+    `wrangler preview base-config secret put <NAME>` (NEW values) and open a PR from a branch of this repo.
 
 ## Gotchas
+
+- **Course F**: `kill.sh` greps `--port <n>` in `ps`, so never run it in the same Bash call whose command line contains
+  "--port 8801" (it kills its own shell, exit 144); start servers with `P=8801 … --port $P`. wrangler dev 4.157.0 has a
+  local observability API (`POST /cdn-cgi/local/explorer/api/local/observability/query`, SQL over `logs` / `spans`;
+  messages are JSON strings, so `json_extract(message, '$[0].event')`); in the two-config web process it didn't return
+  the agent's lines. The platform's invocation log records the full request URL, including `?token=` on `pnpm chat`'s
+  socket (local only since f-01). The budget tests drive cancellation with `agent.saveMessages(msgs, { signal })` inside
+  `runInDurableObject` and a MockLanguageModelV4 that aborts on step N. `previews.secrets` is in wrangler's schema but
+  `deploy --dry-run` rejects it ("Unexpected fields"). **The notes table (b-05) has no owner column**: every Klippy on one
+  D1 shares it (listNotes shows everyone's). Fine for a one-person Klippy behind the GitHub allowlist; a multi-user
+  lesson would need an owner on notes (sources and chunks already have one).
 
 - **Course E**: Vectorize is eventually consistent (vectors queryable ~1 min after upsert; deletes lag too). There's no
   local Vectorize: `remote: true` in dev, a mocked `src/retrieval/vectors` in tests. The local AI binding refuses to run
