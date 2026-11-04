@@ -1,0 +1,14 @@
+# e-01 Paste it or search it? 2026-11-03.
+# A sandbox lesson: long context vs retrieval, and prompt caching first. No code changes in klippy,
+# so this tag holds only this note. The code is exactly as at d-11.
+# Start course E from here:
+#   git clone https://github.com/ryanyogan/klippy && cd klippy && git checkout e-01 && pnpm install
+# Notes for the writer:
+# - The rule the course follows: if everything fits comfortably in the context window and is reused across turns,
+#   paste it (put long documents first, the question last, and cache the shared prefix). Retrieve when it doesn't fit,
+#   when it changes per person, or when you need sources you can point at. Klippy's notes, links and files are the
+#   second kind: they grow without bound and differ per person, so course E builds retrieval.
+# - Already in the code worth pointing at: listNotes (b-05) is "paste it": it hands the model the newest 20 notes.
+#   That stops working once you have note 21. e-07's searchNotes replaces it for questions.
+# - Sources to cite (re-check on writing day): Anthropic "Long context prompting tips" and "Prompt caching" docs;
+#   Anthropic "Introducing Contextual Retrieval" (it says that under ~200k tokens, pasting with caching can beat RAG).
