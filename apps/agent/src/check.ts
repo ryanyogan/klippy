@@ -11,7 +11,8 @@ const FIVE_MINUTES = 5 * 60 * 1000;
 let cached: { probe: Awaited<ReturnType<typeof ask>>; at: number } | undefined;
 
 // GET /klippy/check?nonce=...: bits calls this to check that your Klippy is live.
-// Anyone can call it, so it must never spend more than a few model calls, whoever asks.
+// Anyone can call it, so it must never spend more than a few model calls, whoever asks,
+// and its probe gets no tools ({}): a public route never writes to your database.
 export async function check(url: URL, env: Env) {
 	const nonce = url.searchParams.get('nonce') ?? '';
 	if (!NONCE.test(nonce)) {
@@ -22,7 +23,7 @@ export async function check(url: URL, env: Env) {
 		if (!(await underLimit(env, 'check'))) {
 			return Response.json({ error: 'Too many checks. Wait a minute.' }, { status: 429 });
 		}
-		cached = { probe: await ask(env, 'Say hello to bits in one short sentence.'), at: Date.now() };
+		cached = { probe: await ask(env, 'Say hello to bits in one short sentence.', {}), at: Date.now() };
 	}
 	return Response.json({ nonce, tag: TAG, probe: cached.probe }, { headers: { 'Cache-Control': 'no-store' } });
 }

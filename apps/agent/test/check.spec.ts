@@ -21,6 +21,8 @@ describe('GET /klippy/check', () => {
 		const second = await check('zyx98765');
 		expect(await second.json()).toEqual({ nonce: 'zyx98765', tag: 'a-05', probe: { answer: 'Hello, bits!' } });
 		expect(fake.model.doGenerateCalls).toHaveLength(1);
+		// Anyone can call the check, so its probe gets no tools: it can't write a note.
+		expect(fake.model.doGenerateCalls[0].tools ?? []).toEqual([]);
 	});
 
 	it('refuses a missing or odd nonce', async () => {

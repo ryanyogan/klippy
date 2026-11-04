@@ -18,11 +18,11 @@ afterEach(() => vi.restoreAllMocks());
 // A fake model can't judge your descriptions: that's what the sandbox exercise is for.
 // These tests check your side of the deal: what Claude is shown, and that nothing runs unless it asks.
 describe('tools', () => {
-	it('sends both tools to the model, with their descriptions', async () => {
+	it('sends every tool to the model, with their descriptions', async () => {
 		fake.model = fakeModel('4');
 		await ask("What's 2+2?");
 		const tools = fake.model.doGenerateCalls[0].tools ?? [];
-		expect(tools.map((t) => t.name)).toEqual(['getWeather', 'getTime']);
+		expect(tools.map((t) => t.name)).toEqual(['getWeather', 'getTime', 'saveNote', 'listNotes']);
 		expect(tools.every((t) => t.type === 'function' && (t.description ?? '').length > 40)).toBe(true);
 	});
 

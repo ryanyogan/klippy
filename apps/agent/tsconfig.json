@@ -13,6 +13,8 @@
 		"module": "es2022",
 		/* Specify how TypeScript looks up a file from a given module specifier. */
 		"moduleResolution": "Bundler",
+		/* Allow imports that end in .ts (the data-table-d1 package uses them). */
+		"allowImportingTsExtensions": true,
 		/* Enable importing .json files */
 		"resolveJsonModule": true,
 

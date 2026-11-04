@@ -1,0 +1,163 @@
+# b-05 Klippy keeps notes. Recorded 2026-11-03 on Linux, Node v24.22.2, wrangler 4.157.0, agents 0.33.0, ai 7.0.162, zod 4.6.7, remix 3.1.0 (remix/data-table).
+# MODEL: no Anthropic key on the gateway, so the Workers AI fallback (@cf/zai-org/glm-4.7-flash) answered.
+# Notes for the writer:
+# - New here: packages/db (the `notes` table() + migrations/0001_notes.sql), the D1 binding DB in wrangler.jsonc
+#   (database klippy-db, migrations_dir ../../packages/db/migrations), src/tools/notes.ts (saveNote, listNotes),
+#   and test/notes.spec.ts (a real local D1, built by the migrations; the model is still fake).
+# - The D1 driver: "the driver is included in the repo" (packages/data-table-d1, added in its own commit before
+#   this tag). One line in the lesson, plus what it does: remix/data-table has no D1 driver of its own. Don't paste it.
+#   apps/agent depends on it with "data-table-d1": "workspace:*". Its imports end in .ts, so apps/agent/tsconfig.json
+#   gained "allowImportingTsExtensions": true (one line to explain).
+# - The learner creates their own database: `pnpm wrangler d1 create klippy-db` (in apps/agent), then pastes the
+#   database_id it prints into wrangler.jsonc. Our id is the owner's; a learner's will differ.
+# - Then `pnpm wrangler d1 migrations apply klippy-db --local` before `pnpm dev`. --remote waits for b-09 (deploy).
+# - Tools that need env are made per request: noteTools(env.DB). ask() takes the tools; /klippy/check passes {}
+#   so the public probe can never write a note (a test checks the probe sends no tools).
+# - Limits: a note is 1..1,000 characters (zod .trim().min(1).max(1000)); listNotes returns at most 20, newest first.
+#   A too-long note is refused before anything is written, and the model sees the validation error (a test).
+#   /ask still needs the token and the rate limit, so writes are capped at 10 a minute.
+# - Two stores, said out loud later (C3/C5): D1 holds data other parts read (notes); the agent's own SQLite holds
+#   one person's conversation and memory.
+
+## Terminal 1: apply the migration to the local database (in apps/agent)
+$ pnpm wrangler d1 migrations apply klippy-db --local
+
+Use --remote if you want to access the remote instance.
+
+Migrations to be applied:
+┌────────────────┐
+│ name           │
+├────────────────┤
+│ 0001_notes.sql │
+└────────────────┘
+? About to apply 1 migration(s)
+Your database may not be available to serve requests during the migration, continue?
+🤖 Using fallback value in non-interactive context: yes
+🌀 Executing on local database klippy-db (e51fc5ce-ea1d-48b0-afd7-e0af5cd1672f) from .wrangler/state/v3/d1:
+🌀 To execute on your remote database, add a --remote flag to your wrangler command.
+🚣 2 commands executed successfully.
+┌────────────────┬────────┐
+│ name           │ status │
+├────────────────┼────────┤
+│ 0001_notes.sql │ ✅     │
+└────────────────┴────────┘
+# (Run in a terminal, wrangler asks "continue?" and waits for y. The "fallback value" line is from our scripted run.)
+
+## Terminal 1: pnpm dev (trimmed: wrangler's telemetry notice and its AI-agent "Local Explorer" route list, which a learner won't see)
+
+> klippy@ dev /home/ryan/code/klippy
+> pnpm --filter agent run dev --port 8801
+
+
+> agent@0.0.0 dev /home/ryan/code/klippy/apps/agent
+> wrangler dev --port 8801
+
+
+ ⛅️ wrangler 4.157.0
+────────────────────
+
+Using secrets defined in .dev.vars
+Your Worker has access to the following bindings:
+Binding                                 Resource                  Mode
+env.DB (klippy-db)                      D1 Database               local
+env.AI                                  AI                        remote
+env.LIMITER (10 requests/60s)           Rate Limit                local
+env.KLIPPY_TOKEN ("(hidden)")           Environment Variable      local
+
+⎔ Establishing remote connection...
+⎔ Starting local server...
+[wrangler:info] Ready on http://localhost:8801
+{"step":0,"finish":"tool-calls","toolCalls":[{"tool":"saveNote","input":{"body":"call Sam about the bike on Friday"}}],"toolResults":[{"tool":"saveNote","output":{"saved":{"id":1,"body":"call Sam about the bike on Friday"}}}],"text":"","tokens":639}
+{"step":1,"finish":"stop","toolCalls":[],"toolResults":[],"text":"I've saved your note: \"call Sam about the bike on Friday\"","tokens":686}
+[wrangler:info] POST /ask 200 OK (6312ms)
+{"step":0,"finish":"tool-calls","toolCalls":[{"tool":"saveNote","input":{"body":"oat milk, coffee beans, bin bags"}}],"toolResults":[{"tool":"saveNote","output":{"saved":{"id":2,"body":"oat milk, coffee beans, bin bags"}}}],"text":"","tokens":642}
+{"step":1,"finish":"stop","toolCalls":[],"toolResults":[],"text":"Note saved! Your shopping list is recorded.","tokens":685}
+[wrangler:info] POST /ask 200 OK (5789ms)
+{"step":0,"finish":"tool-calls","toolCalls":[{"tool":"listNotes","input":{}}],"toolResults":[{"tool":"listNotes","output":{"notes":[{"id":2,"body":"oat milk, coffee beans, bin bags","savedAt":"2026-11-04T00:08:35.645Z"},{"id":1,"body":"call Sam about the bike on Friday","savedAt":"2026-11-04T00:08:29.460Z"}]}}],"text":"","tokens":622}
+{"step":1,"finish":"stop","toolCalls":[],"toolResults":[],"text":"You have 2 saved notes:\n\n1. \"call Sam about the bike on Friday\" \n2. \"oat milk, coffee beans, bin bags\"","tokens":743}
+[wrangler:info] POST /ask 200 OK (5438ms)
+{"step":0,"finish":"stop","toolCalls":[],"toolResults":[],"text":"2+2 equals 4.","tokens":626}
+[wrangler:info] POST /ask 200 OK (2473ms)
+
+## Terminal 2
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"Please note down: call Sam about the bike on Friday"}'
+{"answer":"I've saved your note: \"call Sam about the bike on Friday\"","model":"@cf/zai-org/glm-4.7-flash"}
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"Save a note: oat milk, coffee beans, bin bags"}'
+{"answer":"Note saved! Your shopping list is recorded.","model":"@cf/zai-org/glm-4.7-flash"}
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"What notes have I saved?"}'
+{"answer":"You have 2 saved notes:\n\n1. \"call Sam about the bike on Friday\" \n2. \"oat milk, coffee beans, bin bags\"","model":"@cf/zai-org/glm-4.7-flash"}
+$ curl -s -X POST http://localhost:8801/ask -H "Authorization: Bearer demo-token-for-the-recording" -d '{"question":"What is 2+2?"}'
+{"answer":"2+2 equals 4.","model":"@cf/zai-org/glm-4.7-flash"}
+$ pnpm wrangler d1 execute klippy-db --local --command "SELECT * FROM notes"
+
+ ⛅️ wrangler 4.157.0
+────────────────────
+Resource location: local 
+
+Use --remote if you want to access the remote instance.
+
+🌀 Executing on local database klippy-db (e51fc5ce-ea1d-48b0-afd7-e0af5cd1672f) from .wrangler/state/v3/d1:
+🌀 To execute on your remote database, add a --remote flag to your wrangler command.
+🚣 1 command executed successfully.
+[
+  {
+    "results": [
+      {
+        "id": 1,
+        "body": "call Sam about the bike on Friday",
+        "created_at": 1793750909460
+      },
+      {
+        "id": 2,
+        "body": "oat milk, coffee beans, bin bags",
+        "created_at": 1793750915645
+      }
+    ],
+    "success": true,
+    "meta": {
+      "duration": 0
+    }
+  }
+]
+
+$ pnpm typecheck
+
+> klippy@ typecheck /home/ryan/code/klippy
+> pnpm --recursive run typecheck
+
+Scope: 3 of 4 workspace projects
+packages/data-table-d1 typecheck$ tsc --noEmit
+packages/data-table-d1 typecheck: Done
+apps/agent typecheck$ tsc --noEmit && tsc --noEmit -p test
+apps/agent typecheck: Done
+
+$ pnpm test
+
+> klippy@ test /home/ryan/code/klippy
+> pnpm --recursive run test
+
+Scope: 3 of 4 workspace projects
+packages/data-table-d1 test$ NODE_ENV=test remix test
+packages/data-table-d1 test: Found 1 test file(s) (1 server, 0 browser, 0 e2e)
+packages/data-table-d1 test: Running server tests:
+packages/data-table-d1 test: ▶ D1 data-table driver (814.71ms) [server]
+packages/data-table-d1 test: ℹ files 1
+packages/data-table-d1 test: ℹ suites 1
+packages/data-table-d1 test: ℹ tests 24
+packages/data-table-d1 test: ℹ pass 24
+packages/data-table-d1 test: ℹ fail 0
+packages/data-table-d1 test: ℹ duration_ms 1530.70562
+packages/data-table-d1 test: Done
+apps/agent test$ vitest run
+apps/agent test:  RUN  v5.0.5 /home/ryan/code/klippy/apps/agent
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test: Using secrets defined in .dev.vars
+apps/agent test:  Test Files  6 passed (6)
+apps/agent test:       Tests  22 passed (22)
+apps/agent test:    Start at  18:09:09
+apps/agent test:    Duration  2.57s (transform 77%, import 19%, tests 3%, worker 1%)
+apps/agent test: Done
