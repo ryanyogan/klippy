@@ -2,7 +2,7 @@ import { ask } from './ask';
 import { underLimit } from './guard';
 
 // The lesson tag this code is at. bits reads it to see how far your Klippy has come.
-export const TAG = 'e-09';
+export const TAG = 'f-08';
 
 const NONCE = /^[A-Za-z0-9_-]{8,64}$/;
 const FIVE_MINUTES = 5 * 60 * 1000;
